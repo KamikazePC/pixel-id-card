@@ -9,10 +9,11 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <style>
-  /* Layout: the card on a quiet ground, a customise panel beside it (stacked on phones). The card itself is always dark. */
+  /* Layout: the card centred on a quiet ground; the customise panel drops down from a button in the top right. The card itself is always dark. */
   :root {
     --page: #e4e5e8; --panel: #f4f4f6; --text: #17171a; --muted: #5b5d65; --line: #c6c8ce; --chip: #ffffff; --chip-on: #17171a; --chip-on-text: #f4f4f6;
     --blue: #2f35ff; --cyan: #1ee3ff;
+    --bar: 56px; --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --f-display: "Geist", "Helvetica Neue", Arial, sans-serif;
     --f-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   }
@@ -26,13 +27,20 @@
     background: var(--page); color: var(--text); font-family: var(--f-display);
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
-    padding-block: 32px 48px;
+    padding-block: 0 24px;
   }
-  .app { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 40px; align-items: start; }
-  @media (max-width: 880px) { .app { grid-template-columns: minmax(0, 1fr); gap: 24px; } }
+  .topbar {
+    position: sticky; top: 0; z-index: 2; max-width: 1080px; margin: 0 auto 8px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    height: var(--bar); box-sizing: content-box; padding-top: env(safe-area-inset-top, 0px); background: var(--page);
+  }
+  .topbar h1 { margin: 0; font-size: 17px; font-weight: 500; letter-spacing: -0.02em; }
+  .menu-btn svg { width: 16px; height: 16px; flex: none; }
+  body:has(.panel:popover-open) .menu-btn { background: var(--chip-on); color: var(--chip-on-text); border-color: var(--chip-on); }
+  @supports not selector(:popover-open) { .menu-btn { display: none; } }
+  .app { max-width: 1080px; margin: 0 auto; }
 
-  .stage { display: flex; justify-content: center; position: sticky; top: max(24px, env(safe-area-inset-top, 0px)); min-width: 0; }
-  @media (max-width: 880px) { .stage { position: static; } }
+  .stage { display: flex; justify-content: center; min-width: 0; }
   .stage.dragging { outline: 2px dashed var(--cyan); outline-offset: 8px; border-radius: 16px; }
   [hidden] { display: none !important; }
   .stage3d { width: 100%; touch-action: none; cursor: grab; }
@@ -40,10 +48,50 @@
   .stage3d canvas { display: block; width: 100%; height: 100%; }
   #card { display: block; width: 100%; height: auto; cursor: pointer; touch-action: manipulation; }
 
-  .panel { display: grid; gap: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; min-width: 0; }
-  .panel header { display: grid; gap: 6px; }
-  .panel h1 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
-  .panel header p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+  .panel { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 16px; padding: 16px 20px 4px; min-width: 0; }
+  .panel:popover-open { display: grid; }
+  .panel .intro { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+  /* Sections: one open at a time. The header shows the current choice, so a closed row still tells you what's set. */
+  .section { border-top: 1px solid var(--line); }
+  .section > summary {
+    display: flex; align-items: center; gap: 12px; min-height: 48px; padding-inline: 2px;
+    list-style: none; cursor: pointer; border-radius: 8px; -webkit-tap-highlight-color: transparent;
+  }
+  .section > summary::-webkit-details-marker { display: none; }
+  .section > summary:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+  .s-title { flex: none; font-size: 14px; font-weight: 500; }
+  .s-value { flex: 1; min-width: 0; text-align: end; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition-property: opacity; transition-duration: 150ms; transition-timing-function: ease-out; }
+  .section[open] .s-value { opacity: 0; }
+  .s-chev { flex: none; width: 16px; height: 16px; color: var(--muted); transition-property: color; transition-duration: 150ms; transition-timing-function: ease-out; }
+  .section[open] .s-chev { rotate: 180deg; color: var(--text); }
+  @media (hover: hover) { .section > summary:hover .s-chev { color: var(--text); } }
+  .s-body { padding: 2px 0 20px; transition-property: opacity; transition-duration: 200ms; transition-timing-function: var(--ease-out); }
+  @starting-style { .section[open] .s-body { opacity: 0; } }
+  .section::details-content { block-size: 0; overflow: clip; }
+  .section[open]::details-content { block-size: auto; }
+  @media (prefers-reduced-motion: no-preference) {
+    .panel { interpolate-size: allow-keywords; }
+    .section::details-content { transition: block-size 200ms var(--ease-out), content-visibility 200ms allow-discrete; }
+    .s-chev { transition-property: color, rotate; transition-duration: 150ms, 200ms; transition-timing-function: ease-out, var(--ease-out); }
+  }
+  /* Dropdown: anchored under the trigger, scales out of the top-right corner. Closing is a touch quicker than opening. */
+  @supports selector(:popover-open) {
+    .panel {
+      position: fixed; inset: auto; margin: 0; height: auto;
+      top: calc(var(--bar) + env(safe-area-inset-top, 0px));
+      right: max(16px, env(safe-area-inset-right, 0px));
+      width: min(380px, calc(100vw - 32px)); box-sizing: border-box;
+      max-height: calc(100dvh - var(--bar) - env(safe-area-inset-top, 0px) - 16px);
+      overflow-y: auto; overscroll-behavior: contain;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 16px 40px -12px rgba(0, 0, 0, .28);
+      transform-origin: top right;
+      transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out), overlay 200ms allow-discrete, display 200ms allow-discrete;
+    }
+    .panel:not(:popover-open) { opacity: 0; transform: translateY(-4px) scale(0.97); transition-duration: 140ms; }
+    @starting-style { .panel:popover-open { opacity: 0; transform: translateY(-4px) scale(0.97); } }
+    @media (prefers-reduced-motion: reduce) { .panel, .panel:not(:popover-open) { transform: none; } }
+  }
 
   fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 10px; }
   legend { padding: 0; margin-bottom: 10px; font: 500 10px/1.2 var(--f-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
@@ -80,78 +128,103 @@
   .swatch input { width: 36px; height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--chip); cursor: pointer; }
   .swatch input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
   .sublabel { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
-  .status { min-height: 1.4em; margin: 0; font: 500 12px/1.4 var(--f-mono); color: var(--muted); }
+  .status { min-height: 1.4em; margin: 12px 0 0; text-align: center; font: 500 12px/1.4 var(--f-mono); color: var(--muted); }
 </style>
+
+<header class="topbar">
+  <h1>Pixel ID</h1>
+  <button class="btn menu-btn" type="button" popovertarget="panel" aria-controls="panel">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><circle cx="10.5" cy="4.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></svg>
+    Customise
+  </button>
+</header>
 
 <main class="app">
   <section class="stage" id="stage" aria-label="Your card">
     <canvas id="card" role="img" aria-label="Pixel ID card"></canvas>
     <div class="stage3d" id="stage3d" hidden role="img" aria-label="Interactive 3D view of the card. Drag to swing it."></div>
   </section>
+  <p class="status" id="status" role="status"></p>
 
-  <div class="panel">
-    <header>
-      <h1>Pixel ID</h1>
-      <p>Pick a layout and a photo outline, add your details, then export. Click the card to skip to the next effect.</p>
-    </header>
+  <div class="panel" id="panel" popover aria-label="Customise your card">
+    <p class="intro">Pick a layout and a photo outline, add your details, then export. Click the card to skip to the next effect.</p>
 
-    <fieldset id="view-fieldset" hidden>
-      <legend>View</legend>
-      <div class="chips" id="view-chips"></div>
-      <div class="buttons"><button class="btn" id="flip-btn" type="button">Flip card</button></div>
-      <p class="hint">Drag the card to swing it. Double-click it or use Flip card to see the back.</p>
-    </fieldset>
+    <details class="section" name="customise" id="view-fieldset" hidden>
+      <summary><span class="s-title">View</span><span class="s-value" data-from="#view-chips"></span><svg class="s-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <fieldset class="s-body">
+        <legend class="visually-hidden">View</legend>
+        <div class="chips" id="view-chips"></div>
+        <div class="buttons"><button class="btn" id="flip-btn" type="button">Flip card</button></div>
+        <p class="hint">Drag the card to swing it. Double-click it or use Flip card to see the back.</p>
+      </fieldset>
+    </details>
 
-    <fieldset>
-      <legend>Card layout</legend>
-      <div class="chips" id="layout-chips"></div>
-    </fieldset>
+    <details class="section" name="customise" id="sec-layout">
+      <summary><span class="s-title">Card layout</span><span class="s-value" data-from="#layout-chips"></span><svg class="s-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <fieldset class="s-body">
+        <legend class="visually-hidden">Card layout</legend>
+        <div class="chips" id="layout-chips"></div>
+      </fieldset>
+    </details>
 
-    <fieldset>
-      <legend>Photo outline</legend>
-      <div class="chips" id="outline-chips"></div>
-    </fieldset>
+    <details class="section" name="customise" id="sec-outline">
+      <summary><span class="s-title">Photo outline</span><span class="s-value" data-from="#outline-chips"></span><svg class="s-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <fieldset class="s-body">
+        <legend class="visually-hidden">Photo outline</legend>
+        <div class="chips" id="outline-chips"></div>
+      </fieldset>
+    </details>
 
-    <fieldset>
-      <legend>Lanyard</legend>
-      <div class="chips" id="lanyard-chips"></div>
-      <div class="swatches">
-        <label class="swatch" for="strap-color"><input type="color" id="strap-color"> Strap colour</label>
-        <label class="swatch" for="pattern-color"><input type="color" id="pattern-color"> Pattern colour</label>
-      </div>
-      <p class="sublabel">Hardware</p>
-      <div class="chips" id="hardware-chips"></div>
-    </fieldset>
+    <details class="section" name="customise" id="sec-lanyard">
+      <summary><span class="s-title">Lanyard</span><span class="s-value" data-from="#lanyard-chips"></span><svg class="s-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <fieldset class="s-body">
+        <legend class="visually-hidden">Lanyard</legend>
+        <div class="chips" id="lanyard-chips"></div>
+        <div class="swatches">
+          <label class="swatch" for="strap-color"><input type="color" id="strap-color"> Strap colour</label>
+          <label class="swatch" for="pattern-color"><input type="color" id="pattern-color"> Pattern colour</label>
+        </div>
+        <p class="sublabel">Hardware</p>
+        <div class="chips" id="hardware-chips"></div>
+      </fieldset>
+    </details>
 
-    <fieldset>
-      <legend>Effect</legend>
-      <div class="chips" id="effect-chips"></div>
-    </fieldset>
+    <details class="section" name="customise" id="sec-effect">
+      <summary><span class="s-title">Effect</span><span class="s-value" data-from="#effect-chips"></span><svg class="s-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <fieldset class="s-body">
+        <legend class="visually-hidden">Effect</legend>
+        <div class="chips" id="effect-chips"></div>
+      </fieldset>
+    </details>
 
-    <fieldset>
-      <legend>Your details</legend>
-      <div class="field"><label for="f-name">Name</label><input id="f-name" type="text" maxlength="40" autocomplete="name" spellcheck="false"></div>
-      <div class="field"><label for="f-role">Role</label><input id="f-role" type="text" maxlength="60" autocomplete="organization-title" spellcheck="false"></div>
-      <div class="field"><label for="f-city">Based in</label><input id="f-city" type="text" maxlength="32" autocomplete="address-level2" spellcheck="false"></div>
-      <div class="readonly"><span>ID <b id="ro-id">—</b></span></div>
-      <div class="buttons">
-        <label class="btn primary" for="photo-input">Upload photo</label>
-        <input class="visually-hidden" type="file" id="photo-input" accept="image/*">
-        <button class="btn" id="sample-btn" type="button">Use sample face</button>
-      </div>
-      <p class="hint">You can also drop or paste a photo onto the card. It stays in this browser.</p>
-    </fieldset>
+    <details class="section" name="customise" id="sec-details">
+      <summary><span class="s-title">Your details</span><span class="s-value" data-from="#f-name"></span><svg class="s-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <fieldset class="s-body">
+        <legend class="visually-hidden">Your details</legend>
+        <div class="field"><label for="f-name">Name</label><input id="f-name" type="text" maxlength="40" autocomplete="name" spellcheck="false"></div>
+        <div class="field"><label for="f-role">Role</label><input id="f-role" type="text" maxlength="60" autocomplete="organization-title" spellcheck="false"></div>
+        <div class="field"><label for="f-city">Based in</label><input id="f-city" type="text" maxlength="32" autocomplete="address-level2" spellcheck="false"></div>
+        <div class="readonly"><span>ID <b id="ro-id">—</b></span></div>
+        <div class="buttons">
+          <label class="btn primary" for="photo-input">Upload photo</label>
+          <input class="visually-hidden" type="file" id="photo-input" accept="image/*">
+          <button class="btn" id="sample-btn" type="button">Use sample face</button>
+        </div>
+        <p class="hint">You can also drop or paste a photo onto the card. It stays in this browser.</p>
+      </fieldset>
+    </details>
 
-    <fieldset>
-      <legend>Export</legend>
-      <div class="buttons">
-        <button class="btn" id="exp-png" type="button">Card image <small>PNG</small></button>
-        <button class="btn" id="exp-video" type="button"><span id="exp-video-label">Video loop</span> <small id="exp-video-meta">9:16</small></button>
-        <button class="btn" id="exp-wallet" type="button">Wallet kit <small>ZIP</small></button>
-      </div>
-    </fieldset>
-
-    <p class="status" id="status" role="status"></p>
+    <details class="section" name="customise" id="sec-export">
+      <summary><span class="s-title">Export</span><span class="s-value">PNG, video, wallet</span><svg class="s-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <fieldset class="s-body">
+        <legend class="visually-hidden">Export</legend>
+        <div class="buttons">
+          <button class="btn" id="exp-png" type="button">Card image <small>PNG</small></button>
+          <button class="btn" id="exp-video" type="button"><span id="exp-video-label">Video loop</span> <small id="exp-video-meta">9:16</small></button>
+          <button class="btn" id="exp-wallet" type="button">Wallet kit <small>ZIP</small></button>
+        </div>
+      </fieldset>
+    </details>
   </div>
 </main>
 
@@ -802,7 +875,7 @@
     const b = boundsOf(layout), lw = b.w + PAD * 2, lh = b.h + PAD * 2 + SHADOW_EXTRA;
     // fit the card (and lanyard) to the column width and to the window height
     const avail = canvas.parentElement.clientWidth || Math.min(lw, window.innerWidth - 32);
-    const cssW = Math.max(200, Math.min(avail, lw * 1.1, Math.max(360, window.innerHeight - 64) * lw / lh));
+    const cssW = Math.max(200, Math.min(avail, lw * 1.1, Math.max(360, window.innerHeight - 96) * lw / lh));
     canvas.style.width = Math.round(cssW) + 'px';
     canvas.style.aspectRatio = `${lw} / ${lh}`;
     const s = clamp(cssW * (window.devicePixelRatio || 1) / lw, .5, 3);
@@ -836,7 +909,25 @@
       const sp = document.createElement('span'); sp.textContent = op.name;
       lab.append(inp, sp); container.append(lab);
     });
+    updateSummaries();
   }
+
+  // Section headers echo the current choice (or the name typed in), so closed rows still show what's set.
+  function updateSummaries() {
+    for (const v of document.querySelectorAll('.s-value[data-from]')) {
+      const from = document.querySelector(v.dataset.from); if (!from) continue;
+      v.textContent = from.matches('input') ? (from.value.trim() || from.placeholder) : (from.querySelector('input:checked + span')?.textContent || '');
+    }
+  }
+  $('panel').addEventListener('change', updateSummaries);
+  $('panel').addEventListener('input', updateSummaries);
+  $('panel').addEventListener('toggle', e => { if (e.newState === 'open') updateSummaries(); });
+  // Reopen whichever section was open last time (a per-browser convenience; falls back to Card layout).
+  const SECTION_KEY = 'pixel-id-card:section';
+  let lastSection = null; try { lastSection = localStorage.getItem(SECTION_KEY); } catch (e) {}
+  ((lastSection && document.getElementById(lastSection)) || $('sec-layout')).open = true;
+  for (const s of document.querySelectorAll('.section')) s.addEventListener('toggle', () => { if (s.open) try { localStorage.setItem(SECTION_KEY, s.id); } catch (e) {} });
+
   const fitPortrait = () => { const [, , bw, bh] = outline.id === 'bleed' ? layout.block : layout.frame; setPortraitAspect(bw / bh); };
   chips($('layout-chips'), 'layout', LAYOUTS, l => l === layout, l => { layout = l; saved.layout = l.id; save(); fitPortrait(); layoutView(); describe(); });
   chips($('outline-chips'), 'outline', OUTLINES, o => o === outline, o => { outline = o; saved.outline = o.id; save(); fitPortrait(); describe(); });
@@ -901,6 +992,12 @@
   $('photo-input').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
   $('sample-btn').addEventListener('click', () => { setPhoto(null, true); delete saved.photo; save(); status.textContent = 'Back to the sample face.'; });
   const stage = $('stage');
+  // The first click outside an open dropdown only closes it; it shouldn't also skip the effect.
+  // Checked on pointer-down, because the browser has already closed the dropdown by the time the click arrives.
+  let dismissing = false;
+  stage.addEventListener('pointerdown', () => { dismissing = $('panel').matches(':popover-open'); }, true);
+  stage.addEventListener('click', e => { if (dismissing) { e.stopPropagation(); e.preventDefault(); } }, true);
+  window.PixelID.panelBusy = () => dismissing;
   stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('dragging'); });
   stage.addEventListener('dragleave', () => stage.classList.remove('dragging'));
   stage.addEventListener('drop', e => { e.preventDefault(); stage.classList.remove('dragging'); loadFile(e.dataTransfer.files[0]); });
@@ -1259,7 +1356,7 @@ function updateLanyard() {
 let viewW = 0, viewH = 0;
 function sizeHost() {
   const w = host.parentElement.clientWidth || 400;
-  const h = Math.round(Math.min(window.innerHeight - 64, w * 1.55, 980));
+  const h = Math.round(Math.min(window.innerHeight - 96, w * 1.55, 980));
   if (w !== viewW || h !== viewH) { viewW = w; viewH = h; host.style.height = h + 'px'; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); frameCamera(); }
 }
 function frameCamera() {
@@ -1276,7 +1373,7 @@ host.addEventListener('pointerdown', e => {
   if (dragging) return;                                   // ignore a second finger mid-drag
   setNdc(e); if (!ray.intersectObjects(hitMeshes).length) return;
   ray.ray.intersectPlane(plane, hitP); grabOff.set(pts[C].x - hitP.x, pts[C].y - hitP.y); dragTarget.copy(pts[C]);
-  dragging = true; down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+  dragging = true; down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, dismiss: P.panelBusy ? P.panelBusy() : false };
   host.setPointerCapture(e.pointerId); host.classList.add('dragging');
 });
 host.addEventListener('pointermove', e => {
@@ -1290,7 +1387,7 @@ const endDrag = () => {
   // keep the throw believable: cap the release speed of every point
   const maxStep = 5 * DT / SUB;
   for (let i = 1; i < pts.length; i++) { const dx = pts[i].x - prev[i].x, dy = pts[i].y - prev[i].y, l = Math.hypot(dx, dy); if (l > maxStep) { prev[i].x = pts[i].x - dx / l * maxStep; prev[i].y = pts[i].y - dy / l * maxStep; } }
-  if (down && !down.moved && performance.now() - down.t < 350) P.nextEffect();
+  if (down && !down.moved && !down.dismiss && performance.now() - down.t < 350) P.nextEffect();
 };
 host.addEventListener('pointerup', endDrag); host.addEventListener('pointercancel', endDrag);
 host.addEventListener('pointerleave', () => { hovering = false; });
