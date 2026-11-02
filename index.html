@@ -1,0 +1,1328 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pixel ID Card</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+  /* Layout: the card on a quiet ground, a customise panel beside it (stacked on phones). The card itself is always dark. */
+  :root {
+    --page: #e4e5e8; --panel: #f4f4f6; --text: #17171a; --muted: #5b5d65; --line: #c6c8ce; --chip: #ffffff; --chip-on: #17171a; --chip-on-text: #f4f4f6;
+    --blue: #2f35ff; --cyan: #1ee3ff;
+    --f-display: "Geist", "Helvetica Neue", Arial, sans-serif;
+    --f-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --page: #0c0c0e; --panel: #141417; --text: #ececef; --muted: #8e9098; --line: #2c2d33; --chip: #1b1b1f; --chip-on: #ececef; --chip-on-text: #0c0c0e; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --page: #0c0c0e; --panel: #141417; --text: #ececef; --muted: #8e9098; --line: #2c2d33; --chip: #1b1b1f; --chip-on: #ececef; --chip-on-text: #0c0c0e; color-scheme: dark; }
+
+  html, body { min-height: 100%; }
+  body {
+    background: var(--page); color: var(--text); font-family: var(--f-display);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 32px 48px;
+  }
+  .app { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 40px; align-items: start; }
+  @media (max-width: 880px) { .app { grid-template-columns: minmax(0, 1fr); gap: 24px; } }
+
+  .stage { display: flex; justify-content: center; position: sticky; top: max(24px, env(safe-area-inset-top, 0px)); min-width: 0; }
+  @media (max-width: 880px) { .stage { position: static; } }
+  .stage.dragging { outline: 2px dashed var(--cyan); outline-offset: 8px; border-radius: 16px; }
+  [hidden] { display: none !important; }
+  .stage3d { width: 100%; touch-action: none; cursor: grab; }
+  .stage3d.dragging { cursor: grabbing; }
+  .stage3d canvas { display: block; width: 100%; height: 100%; }
+  #card { display: block; width: 100%; height: auto; cursor: pointer; touch-action: manipulation; }
+
+  .panel { display: grid; gap: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; min-width: 0; }
+  .panel header { display: grid; gap: 6px; }
+  .panel h1 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
+  .panel header p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 10px; }
+  legend { padding: 0; margin-bottom: 10px; font: 500 10px/1.2 var(--f-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { position: relative; }
+  .chip input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .chip span { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--line); background: var(--chip); font-size: 13px; line-height: 1.2; white-space: nowrap; }
+  .chip input:hover + span { border-color: var(--muted); }
+  .chip input:checked + span { background: var(--chip-on); color: var(--chip-on-text); border-color: var(--chip-on); }
+  .chip input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field input { font: 400 15px/1.3 var(--f-display); color: var(--text); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; min-width: 0; }
+  .field input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+  .readonly { display: flex; gap: 16px; flex-wrap: wrap; font: 400 12px/1.4 var(--f-mono); color: var(--muted); }
+  .readonly b { font-weight: 500; color: var(--text); }
+
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn { font: 500 13px/1 var(--f-display); color: var(--text); background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+  .btn, .chip span { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), border-color 150ms ease; }
+  .btn:active:not(:disabled), .chip input:active + span { transform: scale(0.97); }
+  @media (hover: hover) and (pointer: fine) { .btn:hover { border-color: var(--muted); } }
+  .btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .btn:disabled { opacity: .6; cursor: progress; }
+  .btn.primary { background: var(--chip-on); color: var(--chip-on-text); border-color: var(--chip-on); }
+  .btn.ready { border-color: var(--blue); }
+  .btn small { font: 400 11px/1 var(--f-mono); color: var(--muted); }
+  .btn.primary small { color: inherit; opacity: .7; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 16px; }
+  .swatch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+  .swatch input { width: 36px; height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--chip); cursor: pointer; }
+  .swatch input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .sublabel { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  .status { min-height: 1.4em; margin: 0; font: 500 12px/1.4 var(--f-mono); color: var(--muted); }
+</style>
+
+<main class="app">
+  <section class="stage" id="stage" aria-label="Your card">
+    <canvas id="card" role="img" aria-label="Pixel ID card"></canvas>
+    <div class="stage3d" id="stage3d" hidden role="img" aria-label="Interactive 3D view of the card. Drag to swing it."></div>
+  </section>
+
+  <div class="panel">
+    <header>
+      <h1>Pixel ID</h1>
+      <p>Pick a layout and a photo outline, add your details, then export. Click the card to skip to the next effect.</p>
+    </header>
+
+    <fieldset id="view-fieldset" hidden>
+      <legend>View</legend>
+      <div class="chips" id="view-chips"></div>
+      <div class="buttons"><button class="btn" id="flip-btn" type="button">Flip card</button></div>
+      <p class="hint">Drag the card to swing it. Double-click it or use Flip card to see the back.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Card layout</legend>
+      <div class="chips" id="layout-chips"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Photo outline</legend>
+      <div class="chips" id="outline-chips"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Lanyard</legend>
+      <div class="chips" id="lanyard-chips"></div>
+      <div class="swatches">
+        <label class="swatch" for="strap-color"><input type="color" id="strap-color"> Strap colour</label>
+        <label class="swatch" for="pattern-color"><input type="color" id="pattern-color"> Pattern colour</label>
+      </div>
+      <p class="sublabel">Hardware</p>
+      <div class="chips" id="hardware-chips"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Effect</legend>
+      <div class="chips" id="effect-chips"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Your details</legend>
+      <div class="field"><label for="f-name">Name</label><input id="f-name" type="text" maxlength="40" autocomplete="name" spellcheck="false"></div>
+      <div class="field"><label for="f-role">Role</label><input id="f-role" type="text" maxlength="60" autocomplete="organization-title" spellcheck="false"></div>
+      <div class="field"><label for="f-city">Based in</label><input id="f-city" type="text" maxlength="32" autocomplete="address-level2" spellcheck="false"></div>
+      <div class="readonly"><span>ID <b id="ro-id">—</b></span></div>
+      <div class="buttons">
+        <label class="btn primary" for="photo-input">Upload photo</label>
+        <input class="visually-hidden" type="file" id="photo-input" accept="image/*">
+        <button class="btn" id="sample-btn" type="button">Use sample face</button>
+      </div>
+      <p class="hint">You can also drop or paste a photo onto the card. It stays in this browser.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Export</legend>
+      <div class="buttons">
+        <button class="btn" id="exp-png" type="button">Card image <small>PNG</small></button>
+        <button class="btn" id="exp-video" type="button"><span id="exp-video-label">Video loop</span> <small id="exp-video-meta">9:16</small></button>
+        <button class="btn" id="exp-wallet" type="button">Wallet kit <small>ZIP</small></button>
+      </div>
+    </fieldset>
+
+    <p class="status" id="status" role="status"></p>
+  </div>
+</main>
+
+<script>
+(() => {
+  // Portrait buffers are W×H units drawn at 2×. H is fixed; W follows the photo area's shape so the effect fills it edge to edge.
+  let W = 480; const H = 600, CORE = 480, BG = '#121214', KP = 2;
+  const STORE = 'pixel-id-card:v2';
+  const CARD_URL = 'https://claude.ai/artifact/MiJTUsT9rhBGRncULvtN5M';
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const HOLD = reduced ? 9000 : 5200, TRANS = 950, REC_HOLD = 2400;
+  const COL = { surface: '#1c1c1f', portrait: '#121214', ink: '#eeeeef', dim: '#85858c', dark: '#121214', cyan: '#1ee3ff', blue: '#2f35ff', white: '#f4f4f5', plate: '#eeeeef' };
+  const SANS = '"Geist", "Helvetica Neue", Arial, sans-serif';
+  const MONO = '"Geist Mono", ui-monospace, Menlo, Consolas, monospace';
+  const $ = id => document.getElementById(id);
+
+  // ---------- storage ----------
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE) || localStorage.getItem('pixel-id-card:v1') || '{}') || {}; } catch (e) { saved = {}; }
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(saved)); return true; } catch (e) { return false; } };
+
+  // ---------- helpers ----------
+  const hash = (a, b = 0) => { let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+  const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
+  const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, w); c.height = Math.max(1, h); return c; };
+
+  // ---------- source portrait ----------
+  const src = mk(W, H), sctx = src.getContext('2d');
+  let cache = new Map(), isSample = true;
+  function drawSample() {
+    const g = sctx;
+    let gr = g.createLinearGradient(0, 0, CORE, H); gr.addColorStop(0, '#1a1b1f'); gr.addColorStop(1, '#09090b');
+    g.fillStyle = gr; g.fillRect(0, 0, CORE, H);
+    gr = g.createRadialGradient(180, 520, 20, 240, 640, 260); gr.addColorStop(0, '#8a8a8f'); gr.addColorStop(1, '#1e1e22');
+    g.fillStyle = gr; g.beginPath(); g.ellipse(240, 660, 215, 175, 0, 0, Math.PI * 2); g.fill();
+    gr = g.createLinearGradient(200, 0, 280, 0); gr.addColorStop(0, '#9a9a9a'); gr.addColorStop(1, '#4a4a4e');
+    g.fillStyle = gr; g.fillRect(205, 360, 70, 120);
+    gr = g.createRadialGradient(205, 225, 10, 240, 270, 170); gr.addColorStop(0, '#f2f2f2'); gr.addColorStop(.6, '#a6a6aa'); gr.addColorStop(1, '#3e3e42');
+    g.fillStyle = gr; g.beginPath(); g.ellipse(240, 265, 102, 132, 0, 0, Math.PI * 2); g.fill();
+    g.save(); g.beginPath(); g.ellipse(240, 265, 104, 134, 0, 0, Math.PI * 2); g.clip();
+    g.fillStyle = '#16161a'; g.beginPath(); g.ellipse(240, 150, 140, 70, 0, 0, Math.PI * 2); g.fill(); g.restore();
+    g.fillStyle = '#26262a'; g.fillRect(180, 238, 42, 7); g.fillRect(258, 238, 42, 7);
+    g.beginPath(); g.ellipse(201, 264, 13, 7, 0, 0, Math.PI * 2); g.ellipse(279, 264, 13, 7, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(40,40,44,.55)'; g.beginPath(); g.moveTo(240, 270); g.lineTo(226, 318); g.lineTo(250, 318); g.fill();
+    g.fillStyle = '#2b2b2f'; g.beginPath(); g.ellipse(240, 346, 28, 6, 0, 0, Math.PI * 2); g.fill();
+  }
+  let photoImg = null;
+  // The portrait always occupies a 480×600 core in the middle; when the photo area is wider, the core's
+  // outer columns are stretched to the edges so the effect has background to draw on (no empty side bands).
+  function paintSource() {
+    const ox = Math.round((W - CORE) / 2);
+    sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.fillStyle = BG; sctx.fillRect(0, 0, W, H);
+    sctx.save(); sctx.translate(ox, 0); sctx.beginPath(); sctx.rect(0, 0, CORE, H); sctx.clip();
+    if (isSample || !photoImg) drawSample();
+    else {
+      const s = Math.max(CORE / photoImg.width, H / photoImg.height), w = photoImg.width * s, h = photoImg.height * s;
+      sctx.drawImage(photoImg, (CORE - w) / 2, Math.min(0, (H - h) * 0.3), w, h);
+    }
+    sctx.restore();
+    if (ox > 0) {
+      sctx.drawImage(src, ox, 0, 3, H, 0, 0, ox, H);
+      sctx.drawImage(src, ox + CORE - 3, 0, 3, H, ox + CORE, 0, W - ox - CORE, H);
+    }
+  }
+  function setPortraitAspect(aspect) {
+    const nw = Math.max(384, Math.min(960, Math.round(H * aspect / 16) * 16));
+    if (nw === W) return;
+    W = nw;
+    src.width = W; src.height = H;
+    for (const c of [portrait, bufA, bufB]) { c.width = W * KP; c.height = H * KP; }
+    paintSource(); cache = new Map();
+  }
+  function setPhoto(img, sample) {
+    isSample = sample; photoImg = sample ? null : img;
+    paintSource();
+    cache = new Map();
+  }
+  function grid(cols, rows) {
+    const key = cols + 'x' + rows;
+    if (cache.has(key)) return cache.get(key);
+    const c = mk(cols, rows), x = c.getContext('2d', { willReadFrequently: true });
+    x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+    const mid = mk(Math.min(W, cols * 4), Math.min(H, rows * 4)), mx = mid.getContext('2d');
+    mx.imageSmoothingQuality = 'high'; mx.drawImage(src, 0, 0, mid.width, mid.height);
+    x.drawImage(mid, 0, 0, cols, rows);
+    const d = x.getImageData(0, 0, cols, rows).data, n = cols * rows, g = new Float32Array(n);
+    for (let i = 0; i < n; i++) g[i] = (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255;
+    const s = Float32Array.from(g).sort();
+    const lo = s[Math.floor(n * .03)], hi = s[Math.floor(n * .985)], span = Math.max(.05, hi - lo);
+    for (let i = 0; i < n; i++) g[i] = Math.pow(clamp((g[i] - lo) / span), 0.95);
+    cache.set(key, g); return g;
+  }
+
+  // ---------- effects ----------
+  const RAMP = ' .-~+=xX0#$@';
+  const effects = [
+    { name: 'ASCII', draw(ctx, t) {
+      const cols = Math.round(40 * W / CORE), rows = 40, cw = W / cols, ch = H / rows, g = grid(cols, rows);
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+      ctx.font = `500 14px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const tick = Math.floor(t * 7), R = RAMP.length - 1;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const i = r * cols + c, v = g[i]; if (v < .1) continue;
+        let k = Math.round(v * R);
+        if (!reduced && hash(i, tick) > .955) k = clamp(k + (hash(i, tick + 7) > .5 ? 3 : -3), 1, R);
+        ctx.fillStyle = `rgba(238,238,240,${.28 + .72 * v})`;
+        ctx.fillText(RAMP[k], c * cw + cw / 2, r * ch + ch / 2 + 1);
+      }
+    }},
+    { name: 'Blocks', draw(ctx, t) {
+      const cols = Math.round(16 * W / CORE), rows = 20, s = W / cols, g = grid(cols, rows);
+      const pal = [null, '#1a1db4', '#2f35ff', '#1ee3ff', '#f4f4f5'];
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+      const tick = Math.floor(t * 3);
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const i = r * cols + c, v = g[i];
+        let l = v < .24 ? 0 : v < .44 ? 1 : v < .62 ? 2 : v < .8 ? 3 : 4;
+        if (!reduced && l > 0 && hash(i, tick) > .93) l = Math.min(4, l + 1);
+        if (!l) continue; ctx.fillStyle = pal[l]; ctx.fillRect(c * s, r * s, s, s);
+      }
+      const n = cols * rows;
+      for (let k = 0; k < 6; k++) { const j = Math.floor(hash(Math.floor(t * 1.3), k + 11) * n); if (g[j] > .3) { ctx.fillStyle = '#ff2bd6'; ctx.fillRect((j % cols) * s, Math.floor(j / cols) * s, s, s); break; } }
+    }},
+    { name: 'Dither', draw(ctx, t) {
+      const cols = Math.round(120 * W / CORE), rows = 150, g = grid(cols, rows);
+      let b = cache.get('dither-buf');
+      if (!b) { const c = mk(cols, rows); b = { c, x: c.getContext('2d') }; b.img = b.x.createImageData(cols, rows); cache.set('dither-buf', b); }
+      const B = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5], d = b.img.data;
+      for (let r = 0; r < rows; r++) {
+        const wave = reduced ? 0 : .09 * Math.sin(t * 2.4 - r / rows * 10);
+        for (let c = 0; c < cols; c++) {
+          const i = r * cols + c, on = g[i] + wave > (B[(r & 3) * 4 + (c & 3)] + .5) / 16, o = i * 4;
+          if (on) { d[o] = 238; d[o + 1] = 238; d[o + 2] = 240; } else { d[o] = 18; d[o + 1] = 18; d[o + 2] = 20; }
+          d[o + 3] = 255;
+        }
+      }
+      b.x.putImageData(b.img, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(b.c, 0, 0, W, H);
+    }},
+    { name: 'Halftone', draw(ctx, t) {
+      const s = 16, cols = W / s, rows = Math.ceil(H / s), g = grid(cols, rows);
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#ececee'; ctx.beginPath();
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const v = g[r * cols + c], dx = c / cols - .5, dy = r / rows - .45, dist = Math.sqrt(dx * dx + dy * dy);
+        const rad = s * .58 * Math.sqrt(v) * (reduced ? 1 : .78 + .22 * Math.sin(t * 2.6 - dist * 14));
+        if (rad < .7) continue; const x = c * s + s / 2, y = r * s + s / 2;
+        ctx.moveTo(x + rad, y); ctx.arc(x, y, rad, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }},
+    { name: 'Signal', draw(ctx, t) {
+      const cols = Math.round(96 * W / CORE), rows = 120, g = grid(cols, rows);
+      let gc = cache.get('signal-buf');
+      if (!gc) { gc = mk(cols, rows); const x = gc.getContext('2d'), img = x.createImageData(cols, rows), lv = [18, 64, 122, 186, 240];
+        for (let i = 0; i < g.length; i++) { const q = lv[Math.min(4, Math.floor(g[i] * 5))]; img.data.set([q, q, q + 2, 255], i * 4); }
+        x.putImageData(img, 0, 0); cache.set('signal-buf', gc); }
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H); ctx.imageSmoothingEnabled = false;
+      const bh = 10, bands = H / bh, burst = !reduced && hash(Math.floor(t * 4), 3) > .45, ft = Math.floor(t * 18);
+      for (let k = 0; k < bands; k++) {
+        const y = k * bh, dx = burst && hash(k, ft) > .78 ? (hash(k, ft + 1) - .5) * 90 : 0;
+        ctx.drawImage(gc, 0, y * rows / H, cols, bh * rows / H, dx, y, W, bh);
+        if (dx) { ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = hash(k, ft + 2) > .5 ? 'rgba(30,227,255,.45)' : 'rgba(47,53,255,.6)'; ctx.fillRect(dx > 0 ? 0 : W + dx, y, Math.abs(dx), bh); ctx.globalCompositeOperation = 'source-over'; }
+      }
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 1);
+      if (!reduced) { const sy = (t * 160) % (H + 120) - 60, gr = ctx.createLinearGradient(0, sy - 40, 0, sy + 3); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(255,255,255,.18)'); ctx.fillStyle = gr; ctx.fillRect(0, sy - 40, W, 43); }
+    }},
+    { name: 'Rain', draw(ctx, t) {
+      const cols = Math.round(32 * W / CORE), rows = 40, cw = W / cols, ch = H / rows, g = grid(cols, rows), CH = '0123456789ABCDEFXZ#$%&*+=<>';
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+      ctx.font = `500 13px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const len = rows + 22, TR = 15;
+      for (let c = 0; c < cols; c++) {
+        const sp = 7 + hash(c, 1) * 13, head = reduced ? hash(c, 2) * len : (t * sp + hash(c, 2) * len) % len;
+        for (let r = 0; r < rows; r++) {
+          const v = g[r * cols + c]; if (v < .08) continue;
+          const d = head - r, tr = d >= 0 && d < TR ? 1 - d / TR : 0;
+          const chr = CH[Math.floor(hash(c * 97 + r, Math.floor(t * 9 + hash(c, 3) * 10)) * CH.length)];
+          ctx.fillStyle = d >= 0 && d < 1 ? `rgba(255,255,255,${.5 + .5 * v})` : tr > 0 ? `rgba(30,227,255,${clamp((.45 + .55 * tr) * (.25 + v))})` : `rgba(214,214,220,${.12 + .6 * v})`;
+          ctx.fillText(chr, c * cw + cw / 2, r * ch + ch / 2 + 1);
+        }
+      }
+    }},
+  ];
+
+  // ---------- portrait animation (effect cycling with a pixel wipe) ----------
+  const portrait = mk(W * KP, H * KP), px = portrait.getContext('2d');
+  const bufA = mk(W * KP, H * KP), bufB = mk(W * KP, H * KP), ax = bufA.getContext('2d'), bx = bufB.getContext('2d');
+  let cur = 0, next = -1, modeStart = performance.now(), transStart = 0, seed = 1, order = [], recording = null;
+  let lock = saved.effect === undefined || saved.effect === 'auto' ? 'auto' : clamp(+saved.effect | 0, 0, effects.length - 1);
+  if (lock !== 'auto') cur = lock;
+  function pickNext() {
+    if (recording) return (cur + 1) % effects.length;
+    if (lock !== 'auto') return lock;
+    if (!order.length) { order = effects.map((_, i) => i).filter(i => i !== cur); for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; } }
+    return order.shift();
+  }
+  function startTransition(now, target) {
+    if (next !== -1) return;
+    const n = target ?? pickNext(); if (n === cur) { modeStart = now; return; }
+    next = n; seed = (Math.random() * 1e6) | 0;
+    if (reduced) finish(now); else transStart = now;
+  }
+  function finish(now) {
+    cur = next; next = -1; modeStart = now;
+    if (recording && ++recording.count >= effects.length) recording.stopAfterFrame = true;
+  }
+  const renderFx = (ctx, idx, t) => { ctx.setTransform(KP, 0, 0, KP, 0, 0); ctx.imageSmoothingEnabled = true; effects[idx].draw(ctx, t); };
+  function renderPortrait(now) {
+    const t = reduced ? modeStart / 1000 : now / 1000;
+    const autoOn = recording || lock === 'auto';
+    if (autoOn && next === -1 && now - modeStart > (recording ? REC_HOLD : HOLD)) startTransition(now);
+    renderFx(ax, cur, t);
+    px.setTransform(1, 0, 0, 1, 0, 0);
+    if (next === -1) { px.drawImage(bufA, 0, 0); return; }
+    renderFx(bx, next, t);
+    const p = clamp((now - transStart) / TRANS), cs = 20 * KP, cols = Math.ceil(W / 20), rows = H / 20;
+    px.drawImage(bufA, 0, 0);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const i = r * cols + c, hh = hash(i, seed) * .75 + (r / rows) * .25;
+      if (hh < p - .07) px.drawImage(bufB, c * cs, r * cs, cs, cs, c * cs, r * cs, cs, cs);
+      else if (hh < p) { px.fillStyle = hash(i, seed + 1) > .5 ? COL.blue : COL.cyan; px.fillRect(c * cs, r * cs, cs, cs); }
+    }
+    if (p >= 1) finish(now);
+  }
+
+  // ---------- card layouts (pixel stack family) ----------
+  // Units are card pixels; the main body starts at (0,0). rects = silhouette, holes cut through it,
+  // accents = coloured blocks, frame = photo box for drawn outlines, block = photo box for full bleed.
+  const FULL = { label: { font: 'monoM', size: 9, color: 'dim', ls: 14, upper: true } };
+  const L = (t, x, y, o = {}) => ({ t, x, y, ...FULL.label, ...o });
+  const BADGE = [
+    { t: d => d.name, x: 18, y: 426, w: 236, font: 'med', size: 28, ls: -2.5, lh: 1.08, maxLines: 2, min: 18, fit: true },
+    { t: d => d.role, x: 18, y: '+6', w: 236, font: 'reg', size: 14, color: 'dim', lh: 1.3, maxLines: 2, fit: true },
+    L(() => 'Based in', 18, '+20', { fit: true }),
+    { t: d => d.city, x: 18, y: '+4', w: 236, font: 'reg', size: 13, maxLines: 1, fit: true },
+    { k: 'qr', x: 270, y: 445, s: 72 },
+    { t: d => `Pixel ID · ${d.id}`, x: 329, y: 402, font: 'mono', size: 10, color: 'dim', ls: 18, upper: true, rot: true },
+    { k: 'live', x: 290, y: 560 },
+  ];
+  const STACK_RECTS = [[144, -44, 72, 64], [-24, 8, 408, 410], [0, 400, 360, 140], [168, 520, 192, 68]];
+  // Original: photo on top, then name over role, then city and ID side by side, the MRZ, and the live marker.
+  // Items 2–5 are two columns: the second column reuses the first column's y (sameAs = item index).
+  const ORIGINAL = { id: 'original', name: 'Original', rects: [[0, 0, 360, 658, 20]], holes: [], accents: [], frame: [18, 18, 324, 405], block: [0, 0, 360, 432], fitLimit: 622, items: [
+    { t: d => d.name, x: 18, y: 441, w: 324, font: 'med', size: 26, ls: -2.5, lh: 1.08, maxLines: 2, min: 18, fit: true },
+    { t: d => d.role, x: 18, y: '+6', w: 324, font: 'reg', size: 14, color: 'dim', lh: 1.3, maxLines: 2, fit: true },
+    L(() => 'Based in', 18, '+18', { fit: true }), { t: d => d.city, x: 18, y: '+4', w: 155, font: 'reg', size: 13, maxLines: 1, fit: true },
+    L(() => 'ID No.', 187, 0, { sameAs: 2, fit: true }), { t: d => d.id, x: 187, y: 0, sameAs: 3, font: 'mono', size: 12, ls: 4, fit: true },
+    { k: 'rule', x: 18, y: '+16', w: 324, fit: true },
+    ...[0, 1, 2].map(i => ({ t: d => d.mrz[i], x: 18, y: i ? '+3.5' : '+12', font: 'mono', size: 10, color: 'dim', ls: 19, fit: true })),
+    { k: 'live', x: 304, y: 636 },
+  ] };
+  const LAYOUTS = [
+    ORIGINAL,
+    { id: 'stack', name: 'Pixel stack', rects: STACK_RECTS, holes: [['c', 180, -22, 8]], accents: [[-24, 418, 24, 48, 'blue'], [360, 8, 24, 24, 'cyan']], frame: [18, 52, 299, 350], block: [-24, 8, 408, 410], items: BADGE, fitLimit: 528 },
+    { id: 'mirrored', name: 'Mirrored', rects: [[264, -44, 72, 64], [0, 8, 384, 410], [0, 400, 360, 140], [120, 520, 240, 68]], holes: [['c', 300, -22, 8]], accents: [[360, 370, 24, 48, 'blue'], [96, 540, 24, 24, 'cyan']], frame: [18, 52, 299, 350], block: [0, 8, 384, 410], items: BADGE, fitLimit: 528 },
+    { id: 'tiles', name: 'Coloured tiles', rects: [[-24, 8, 408, 410], [0, 400, 360, 188]], holes: [], accents: [[144, -44, 72, 60, 'cyan', [180, -22, 8]], [258, 433, 126, 96, 'blue'], [-24, 8, 24, 24, 'white']], frame: [18, 52, 299, 350], block: [-24, 8, 408, 410], items: BADGE, fitLimit: 528 },
+    { id: 'staircase', name: 'Staircase', rects: [[-24, -24, 72, 72], [0, 0, 360, 540], [48, 536, 312, 28], [96, 560, 264, 28]], holes: [['c', 12, 12, 8]], accents: [], frame: [18, 52, 299, 350], block: [0, 0, 360, 418], items: BADGE, fitLimit: 528 },
+    { id: 'corners', name: 'Pixel corners', rects: [[0, 0, 360, 588]], holes: [['r', 0, 0, 24, 12], ['r', 0, 0, 12, 24], ['r', 336, 0, 24, 12], ['r', 348, 0, 12, 24], ['r', 0, 576, 24, 12], ['r', 0, 564, 12, 24], ['r', 336, 576, 24, 12], ['r', 348, 564, 12, 24], ['r', 144, 16, 72, 12]], accents: [], frame: [18, 52, 299, 350], block: [0, 0, 360, 418], items: BADGE, fitLimit: 528 },
+    { id: 'tetris', name: 'Tetris tiles', rects: [[144, -44, 72, 60], [0, 8, 336, 344], [240, 448, 96, 104]], holes: [['c', 180, -22, 8]], accents: [[48, 344, 312, 112, 'cyan'], [0, 456, 240, 96, 'blue']], frame: [16, 24, 304, 304], block: [0, 8, 336, 344], fitLimit: 446, items: [
+      { t: d => d.name, x: 64, y: 360, w: 280, font: 'bold', size: 34, color: 'dark', ls: -3, lh: 1.02, maxLines: 2, min: 20, fit: true },
+      L(d => d.role, 64, '+8', { w: 280, color: 'dark', maxLines: 1, fit: true }),
+      L(() => 'ID No.', 16, 470, { color: 'ink' }), { t: d => d.id, x: 16, y: 486, font: 'mono', size: 12, ls: 4 },
+      L(() => 'Based in', 140, 470, { color: 'ink' }), { t: d => d.city, x: 140, y: 486, w: 92, font: 'reg', size: 13, maxLines: 1 },
+      { k: 'live', x: 16, y: 526, color: 'ink' }, { k: 'qr', x: 256, y: 464, s: 64 },
+    ] },
+    { id: 'steps', name: 'Info steps', rects: [[24, -40, 64, 56], [0, 0, 288, 364], [0, 360, 312, 68], [0, 424, 336, 68], [0, 488, 360, 76]], holes: [['c', 56, -20, 8]], accents: [], frame: [16, 16, 256, 328], block: [0, 0, 288, 364], items: [
+      { t: d => d.name, x: 16, y: 376, w: 288, font: 'med', size: 24, ls: -2, maxLines: 1, min: 15 },
+      { t: d => `${d.role} · ${d.city}`, x: 16, y: 444, w: 304, font: 'reg', size: 13, color: 'dim', lh: 1.3, maxLines: 2 },
+      L(() => 'ID No.', 16, 500), { t: d => d.id, x: 16, y: 516, font: 'mono', size: 12, ls: 4 },
+      { k: 'qr', x: 296, y: 500, s: 48 }, { k: 'live', x: 16, y: 542 },
+    ] },
+    { id: 'overhang', name: 'Overhang bleed', rects: STACK_RECTS, holes: [['c', 180, -22, 8]], accents: [], frame: [18, 24, 324, 352], block: [-24, 8, 408, 400], items: [
+      { t: d => d.headline, x: 14, y: 372, w: 340, font: 'bold', size: 60, ls: -5, lh: 1, maxLines: 1, min: 30 },
+      { t: d => d.name, x: 16, y: 444, w: 244, font: 'med', size: 22, ls: -2, maxLines: 1, min: 14 },
+      L(d => `${d.city} · ${d.id}`, 16, 476, { w: 244, maxLines: 1 }),
+      { k: 'qr', x: 276, y: 440, s: 64 }, { k: 'live', x: 290, y: 556 },
+    ] },
+    { id: 'pulltab', name: 'Pull tab', rects: [[0, -48, 72, 64], [0, 0, 360, 520], [216, 516, 120, 84]], holes: [['c', 36, -24, 8]], accents: [], frame: [54, 112, 252, 252], block: [0, 96, 360, 284], items: [
+      { t: d => d.name, x: 24, y: 24, w: 312, font: 'med', size: 26, ls: -2.5, maxLines: 1, min: 15 },
+      { t: d => d.role, x: 24, y: '+6', w: 312, font: 'reg', size: 13, color: 'dim', maxLines: 1 },
+      L(() => 'Based in', 24, 404), { t: d => d.city, x: 24, y: 420, w: 232, font: 'reg', size: 13, maxLines: 1 },
+      { k: 'qr', x: 272, y: 400, s: 64 }, { k: 'live', x: 24, y: 488 },
+      L(() => 'ID No.', 232, 532), { t: d => d.id, x: 232, y: 548, font: 'mono', size: 12, ls: 4 },
+    ] },
+    { id: 'offset', name: 'Offset columns', rects: [[84, -40, 64, 56], [0, 0, 232, 524], [220, 72, 140, 516]], holes: [['c', 116, -20, 8]], accents: [], frame: [16, 16, 200, 264], block: [0, 0, 232, 288], items: [
+      { t: d => d.role, x: 16, y: 296, w: 200, font: 'reg', size: 13, color: 'dim', lh: 1.3, maxLines: 2 },
+      L(() => 'Based in', 16, 340), { t: d => d.city, x: 16, y: 356, w: 200, font: 'reg', size: 13, maxLines: 1 },
+      { k: 'live', x: 16, y: 496 }, { k: 'qr', x: 244, y: 92, s: 64 },
+      { t: d => d.name, x: 240, y: 568, font: 'med', size: 44, ls: -3, rot: true, maxLen: 380, min: 22 },
+      { t: d => d.id, x: 318, y: 568, font: 'mono', size: 12, color: 'dim', ls: 8, rot: true },
+    ] },
+    { id: 'pyramid', name: 'Pyramid', rects: [[156, -40, 48, 52], [48, 0, 264, 312], [24, 300, 312, 156], [0, 448, 360, 116]], holes: [['c', 180, -20, 8]], accents: [], frame: [64, 16, 232, 280], block: [48, 0, 264, 304], items: [
+      { t: d => d.name, x: 24, y: 322, w: 312, font: 'med', size: 24, ls: -2, align: 'center', maxLines: 1, min: 15 },
+      { t: d => d.role, x: 24, y: 356, w: 312, font: 'reg', size: 13, color: 'dim', align: 'center', maxLines: 1 },
+      L(d => d.city, 24, 384, { w: 312, align: 'center', maxLines: 1 }),
+      L(() => 'ID No.', 16, 464), { t: d => d.id, x: 16, y: 480, font: 'monoM', size: 26, ls: 2 },
+      { k: 'live', x: 16, y: 536 }, { k: 'qr', x: 288, y: 462, s: 56 },
+    ] },
+  ];
+  const OUTLINES = [
+    { id: 'normal', name: 'Normal' },
+    { id: 'wave', name: 'Stepped wave' },
+    { id: 'corners', name: 'Stepped corners' },
+    { id: 'bleed', name: 'Full bleed' },
+  ];
+  let layout = LAYOUTS.find(l => l.id === saved.layout) || LAYOUTS[0];
+  let outline = OUTLINES.find(o => o.id === saved.outline) || OUTLINES[0];
+
+  // ---------- lanyard layer ----------
+  // Every style shares one structure: two straps -> clamp -> strap loop -> swivel -> lobster clasp -> split ring
+  // through the card's punch (or a metal badge clip on layouts without one).
+  const ATTACH = { original: { x: 180, y: -16, kind: 'clip' }, stack: { x: 180, y: -22 }, mirrored: { x: 300, y: -22 }, tiles: { x: 180, y: -22 }, staircase: { x: 12, y: 12 }, corners: { x: 180, y: 22 }, tetris: { x: 180, y: -22 }, steps: { x: 56, y: -20 }, overhang: { x: 180, y: -22 }, pulltab: { x: 36, y: -24 }, offset: { x: 116, y: -20 }, pyramid: { x: 180, y: -20 } };
+  LAYOUTS.forEach(l => { l.attach = ATTACH[l.id]; });
+  const LANYARDS = [
+    { id: 'none', name: 'None' }, { id: 'flat', name: 'Flat strap' }, { id: 'printed', name: 'Printed' },
+    { id: 'pixel', name: 'Pixel' }, { id: 'cord', name: 'Cord' }, { id: 'chain', name: 'Ball chain' },
+  ];
+  const HARDWARE = [{ id: 'silver', name: 'Silver' }, { id: 'black', name: 'Black' }, { id: 'gold', name: 'Gold' }];
+  const METAL = { silver: ['#f4f5f8', '#a3a7b0', '#e6e8ec', '#7c8089'], black: ['#5a5c63', '#1d1e22', '#3d3f45', '#111215'], gold: ['#f7e3a6', '#b88a2c', '#ecd08a', '#8c6520'] };
+  const LANYARD_RISE = 300;
+  let lanyard = LANYARDS.find(l => l.id === saved.lanyard) || LANYARDS[1];
+  let strapColor = /^#[0-9a-f]{6}$/i.test(saved.strapColor || '') ? saved.strapColor : '#2f35ff';
+  let patternColor = /^#[0-9a-f]{6}$/i.test(saved.patternColor || '') ? saved.patternColor : '#1ee3ff';
+  let hardware = METAL[saved.hardware] ? saved.hardware : 'silver';
+
+  const boundsOf = (Lt, withLanyard = true) => {
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const [x, y, w, h] of [...Lt.rects, ...Lt.accents]) { a = Math.min(a, x); b = Math.min(b, y); c = Math.max(c, x + w); d = Math.max(d, y + h); }
+    if (withLanyard && lanyard.id !== 'none' && Lt.attach) { const at = Lt.attach; a = Math.min(a, at.x - 90); c = Math.max(c, at.x + 90); b = Math.min(b, at.y - LANYARD_RISE); }
+    return { x: a, y: b, w: c - a, h: d - b };
+  };
+
+  // ---------- card details ----------
+  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const ALNUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  if (!saved.id) saved.id = Array.from({ length: 9 }, () => ALNUM[Math.floor(Math.random() * ALNUM.length)]).join('');
+  if (!saved.issued) saved.issued = new Date().toISOString().slice(0, 10);
+  const issued = new Date(saved.issued + 'T00:00:00'), expires = new Date(issued); expires.setFullYear(issued.getFullYear() + 4);
+  const DEFAULTS = { name: 'Your Name', role: 'Designer & Developer', city: 'Lagos' };
+  const details = () => {
+    const name = (saved.name || '').trim() || DEFAULTS.name, role = (saved.role || '').trim() || DEFAULTS.role, city = (saved.city || '').trim() || DEFAULTS.city;
+    const first = (role.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/u) || ['Holder'])[0];
+    return { name, role, city, headline: first, mrz: mrzLines(name), id: saved.id.replace(/(.{4})(.{4})(.)/, '$1-$2-$3'), exp: `${String(expires.getDate()).padStart(2, '0')} ${MONTHS[expires.getMonth()]} ${expires.getFullYear()}`, no: String(cur + 1).padStart(2, '0'), effect: effects[cur].name };
+  };
+  // machine-readable zone for the Original layout (ICAO 9303 TD1, check digits weighted 7-3-1)
+  const cd = s => String([...s].reduce((sum, ch, i) => sum + (ch === '<' ? 0 : /\d/.test(ch) ? +ch : ch.charCodeAt(0) - 55) * [7, 3, 1][i % 3], 0) % 10);
+  const mrzText = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '<');
+  const padM = (s, n) => (s + '<'.repeat(n)).slice(0, n);
+  const yymmdd = d => String(d.getFullYear() % 100).padStart(2, '0') + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  function mrzLines(name) {
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    const surname = mrzText(words.length > 1 ? words[words.length - 1] : (words[0] || '')), given = mrzText(words.slice(0, -1).join(' '));
+    const doc = saved.id, exp = yymmdd(expires), dob = '<<<<<<';
+    const l1 = padM('I<XXX' + doc + cd(doc), 30), l2a = dob + cd(dob) + '<' + exp + cd(exp) + 'XXX';
+    const l2 = padM(l2a, 29) + cd(l1.slice(5, 30) + l2a.slice(0, 7) + l2a.slice(8, 15) + padM('', 11));
+    return [l1, l2, padM(surname + '<<' + given, 30)];
+  }
+
+  // ---------- QR (links to the live card) ----------
+  let QR = null;
+  try { if (typeof qrcode === 'function') { const q = qrcode(0, 'M'); q.addData(CARD_URL); q.make(); QR = q; } } catch (e) { QR = null; }
+
+  // ---------- drawing ----------
+  const FONTS = { reg: s => `400 ${s}px ${SANS}`, med: s => `500 ${s}px ${SANS}`, bold: s => `700 ${s}px ${SANS}`, mono: s => `400 ${s}px ${MONO}`, monoM: s => `500 ${s}px ${MONO}` };
+  const setFont = (ctx, it, size) => { ctx.font = FONTS[it.font || 'reg'](size); if ('letterSpacing' in ctx) ctx.letterSpacing = ((it.ls || 0) / 100 * size).toFixed(2) + 'px'; };
+  function wrapLines(ctx, text, w) {
+    const words = text.split(/\s+/).filter(Boolean), lines = []; let line = '';
+    const pushLong = word => { let part = ''; for (const ch of word) { if (part && ctx.measureText(part + ch).width > w) { lines.push(part); part = ch; } else part += ch; } return part; };
+    for (const wd of words) {
+      const test = line ? line + ' ' + wd : wd;
+      if (ctx.measureText(test).width <= w) line = test;
+      else if (!line) line = pushLong(wd);
+      else { lines.push(line); line = ctx.measureText(wd).width > w ? pushLong(wd) : wd; }
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
+  }
+  function drawText(ctx, it, d, flowY, scale = 1, measure = false) {
+    let text = it.t(d); if (it.upper) text = text.toUpperCase();
+    const k = it.fit ? scale : 1;
+    const y = typeof it.y === 'string' ? flowY + parseFloat(it.y) * k : it.y;
+    let size = it.size * k, lines; const minSize = (it.min || it.size) * k;
+    for (;;) {
+      setFont(ctx, it, size);
+      if (it.rot) { if (!it.maxLen || ctx.measureText(text).width <= it.maxLen || size <= minSize) { lines = [text]; break; } }
+      else { lines = it.w ? wrapLines(ctx, text, it.w) : [text]; if (lines.length <= (it.maxLines || 99) || size <= minSize) break; }
+      size -= 1;
+    }
+    if (measure) return y + Math.min(lines.length, it.maxLines || 99) * size * (it.lh || 1.2);
+    if (it.maxLines && lines.length > it.maxLines) {
+      lines = lines.slice(0, it.maxLines); let last = lines[it.maxLines - 1];
+      while (last.length > 1 && ctx.measureText(last + '…').width > it.w) last = last.slice(0, -1).trimEnd();
+      lines[it.maxLines - 1] = last + '…';
+    }
+    if (it.rot && it.maxLen) { let s = lines[0]; while (s.length > 1 && ctx.measureText(s).width > it.maxLen) s = s.slice(0, -1); if (s !== lines[0]) lines[0] = s.trimEnd() + '…'; }
+    ctx.fillStyle = COL[it.color || 'ink']; ctx.textBaseline = 'top';
+    const lh = size * (it.lh || 1.2);
+    if (it.rot) { ctx.save(); ctx.translate(it.x, y); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'left'; ctx.fillText(lines[0], 0, 0); ctx.restore(); return y; }
+    ctx.textAlign = it.align || 'left';
+    const ax = it.align === 'center' ? it.x + it.w / 2 : it.align === 'right' ? it.x + it.w : it.x;
+    lines.forEach((ln, i) => ctx.fillText(ln, ax, y + i * lh));
+    return y + lines.length * lh;
+  }
+  function drawQR(ctx, { x, y, s }) {
+    ctx.fillStyle = COL.plate; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, s, s, 6) : ctx.rect(x, y, s, s); ctx.fill();
+    if (!QR) { ctx.fillStyle = COL.dark; ctx.font = FONTS.monoM(9); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('QR', x + s / 2, y + s / 2); return; }
+    const n = QR.getModuleCount(), cell = s / (n + 4);
+    ctx.fillStyle = COL.dark;
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (QR.isDark(r, c)) ctx.fillRect(x + (c + 2) * cell, y + (r + 2) * cell, cell + .02, cell + .02);
+  }
+  function drawLive(ctx, { x, y, color }) {
+    ctx.fillStyle = COL.cyan; ctx.fillRect(x, y + 3, 6, 6);
+    drawText(ctx, { t: () => 'Live', x: x + 12, y, font: 'monoM', size: 9, color: color || 'dim', ls: 14, upper: true }, {}, 0);
+  }
+
+  const scratchCache = new Map();
+  function scratch(w, h) {
+    const key = w + 'x' + h;
+    if (!scratchCache.has(key)) { if (scratchCache.size > 4) scratchCache.clear(); scratchCache.set(key, [mk(w, h), mk(w, h), mk(w, h), mk(w, h)]); }
+    return scratchCache.get(key);
+  }
+  const roundRectPath = (c, x, y, w, h, r) => { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); };
+  function cutHoles(c, holes) {
+    c.globalCompositeOperation = 'destination-out'; c.fillStyle = '#000';
+    for (const hl of holes) { if (hl[0] === 'c') { c.beginPath(); c.arc(hl[1], hl[2], hl[3], 0, Math.PI * 2); c.fill(); } else c.fillRect(hl[1], hl[2], hl[3], hl[4]); }
+    c.globalCompositeOperation = 'source-over';
+  }
+  function fillOutline(c, Lt, o) {
+    c.fillStyle = '#fff';
+    const [x, y, w, h] = o === 'bleed' ? Lt.block : Lt.frame;
+    if (o === 'bleed') { c.fillRect(x, y, w, h); return; }
+    if (o === 'normal') { roundRectPath(c, x, y, w, h, 10); c.fill(); return; }
+    if (o === 'corners') {
+      c.fillRect(x, y, w, h); c.globalCompositeOperation = 'destination-out';
+      for (const [cx, cy, sx, sy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]])
+        for (const [bw, bh] of [[36, 12], [24, 24], [12, 36]]) c.fillRect(sx > 0 ? cx : cx - bw, sy > 0 ? cy : cy - bh, bw, bh);
+      c.globalCompositeOperation = 'source-over'; return;
+    }
+    // stepped wave: a pixel take on the Gripswing panel edge
+    const a = 12, s = 12, dd = (i, ph) => [0, 6, 12][Math.round(Math.sin(i * 0.85 + ph) + 1)];
+    c.fillRect(x + a, y + a, w - 2 * a, h - 2 * a);
+    for (let i = 0; i < Math.floor((w - 2 * a) / s); i++) { const t = dd(i, 0), b = dd(i, 2); if (t) c.fillRect(x + a + i * s, y + a - t, s, t + .5); if (b) c.fillRect(x + a + i * s, y + h - a - .5, s, b + .5); }
+    for (let i = 0; i < Math.floor((h - 2 * a) / s); i++) { const l = dd(i, 1), r = dd(i, 3); if (l) c.fillRect(x + a - l, y + a + i * s, l + .5, s); if (r) c.fillRect(x + w - a - .5, y + a + i * s, r + .5, s); }
+  }
+  // Fit the whole portrait inside the photo box (never crop the face); the box's leftover space
+  // takes the portrait's own dark background, so the effect reads as one continuous image.
+  function coverDraw(c, img, [x, y, w, h]) {
+    c.fillStyle = COL.portrait; c.fillRect(x, y, w, h);
+    const iw = img.width, ih = img.height, sc = Math.min(w / iw, h / ih), dw = iw * sc, dh = ih * sc;
+    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    c.drawImage(img, x + (w - dw) / 2, y + (h - dh), dw, dh);
+  }
+
+  // ---------- lanyard drawing (card units) ----------
+  function metal(ctx, x, w) {
+    const m = METAL[hardware], g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, m[0]); g.addColorStop(.45, m[1]); g.addColorStop(.72, m[2]); g.addColorStop(1, m[3]); return g;
+  }
+  function strap(ctx, x1, y1, x2, y2, w, side) {
+    const len = Math.hypot(x2 - x1, y2 - y1), ang = Math.atan2(y2 - y1, x2 - x1);
+    ctx.save(); ctx.translate(x1, y1); ctx.rotate(ang);
+    ctx.beginPath(); ctx.rect(0, -w / 2, len, w); ctx.clip();
+    ctx.fillStyle = strapColor; ctx.fillRect(0, -w / 2, len, w);
+    const st = lanyard.id;
+    if (st === 'flat') {
+      ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      for (const yy of [-w / 2 + 3, w / 2 - 3]) { ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(len, yy); ctx.stroke(); }
+      ctx.setLineDash([]);
+    } else if (st === 'printed') {
+      ctx.fillStyle = patternColor; ctx.font = FONTS.monoM(10); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
+      const word = 'PIXEL ID · ', ww = ctx.measureText(word).width;
+      for (let x = len - ww * Math.ceil(len / ww); x < len; x += ww) ctx.fillText(word, x, .5);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    } else if (st === 'pixel') {
+      const c = w / 4; ctx.fillStyle = patternColor;
+      for (let k = 0; k * c < len; k++) for (let j = 0; j < 4; j++) if (hash(k * 7 + side * 131, j) > .58) ctx.fillRect(k * c, -w / 2 + j * c, c + .3, c + .3);
+    } else if (st === 'cord') {
+      ctx.strokeStyle = patternColor; ctx.globalAlpha = .6; ctx.lineWidth = 1.6;
+      for (let k = -w; k < len; k += 5) { ctx.beginPath(); ctx.moveTo(k, -w / 2); ctx.lineTo(k + w, w / 2); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    }
+    const g = ctx.createLinearGradient(0, -w / 2, 0, w / 2);
+    g.addColorStop(0, 'rgba(255,255,255,.16)'); g.addColorStop(.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,.25)');
+    ctx.fillStyle = g; ctx.fillRect(0, -w / 2, len, w);
+    if (side > 0) { ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fillRect(0, -w / 2, len, w); }   // the far strap sits slightly in shadow
+    ctx.restore();
+  }
+  function beads(ctx, x1, y1, x2, y2, r = 3) {
+    const len = Math.hypot(x2 - x1, y2 - y1), n = Math.max(1, Math.floor(len / (r * 2.4)));
+    for (let k = 0; k <= n; k++) { const t = k / n, x = x1 + (x2 - x1) * t, y = y1 + (y2 - y1) * t; ctx.fillStyle = metal(ctx, x - r, r * 2); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+  }
+  function drawLanyard(ctx, Lt) {
+    if (lanyard.id === 'none' || !Lt.attach) return;
+    const { x: ax, y: ay, kind } = Lt.attach, st = lanyard.id;
+    const thin = st === 'cord' || st === 'chain', w = st === 'cord' ? 7 : 22;
+    const clampTop = ay - 100, joinY = clampTop + 4, far = 2400;
+    // straps rise from the clamp and run off the top of the frame
+    const dx = 61, dy = joinY - (ay - LANYARD_RISE), f = far / dy;
+    for (const side of [1, -1]) {
+      const bx = ax + side * (thin ? 4 : 9), tx = bx + side * dx * f, ty = joinY - dy * f;
+      if (st === 'chain') beads(ctx, tx, ty, bx, joinY); else strap(ctx, tx, ty, bx, joinY, w, side);
+    }
+    // strap loop from the clamp down to the swivel ring
+    if (st === 'chain') beads(ctx, ax, clampTop + 14, ax, ay - 62, 2.4);
+    else { ctx.fillStyle = strapColor; roundRectPath(ctx, ax - (thin ? 3.5 : 6), clampTop + 10, thin ? 7 : 12, ay - 62 - clampTop - 6, thin ? 3.5 : 6); ctx.fill(); ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fill(); }
+    // clamp / cord stopper / chain connector
+    if (st === 'chain') { ctx.fillStyle = metal(ctx, ax - 4, 8); roundRectPath(ctx, ax - 4, clampTop + 2, 8, 12, 3); ctx.fill(); }
+    else if (st === 'cord') { ctx.fillStyle = metal(ctx, ax - 7, 14); roundRectPath(ctx, ax - 7, clampTop - 2, 14, 18, 7); ctx.fill(); }
+    else { ctx.fillStyle = metal(ctx, ax - 16, 32); roundRectPath(ctx, ax - 16, clampTop, 32, 20, 3); ctx.fill(); ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(ax - 16, clampTop + 13, 32, 2); }
+    // metal badge clip for layouts without a punch
+    if (kind === 'clip') {
+      ctx.fillStyle = metal(ctx, ax - 13, 26); roundRectPath(ctx, ax - 13, ay - 10, 26, 40, 5); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(ax - 13, ay + 22, 26, 3);
+      ctx.fillStyle = COL.dark; ctx.beginPath(); ctx.arc(ax, ay, 3.6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.lineCap = 'round';
+    // swivel: small ring + barrel
+    ctx.strokeStyle = metal(ctx, ax - 5, 10); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ax, ay - 59, 4.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = metal(ctx, ax - 4, 8); roundRectPath(ctx, ax - 4, ay - 55, 8, 12, 3); ctx.fill();
+    // lobster clasp with its gate
+    ctx.strokeStyle = metal(ctx, ax - 8, 16); ctx.lineWidth = 3.2; ctx.beginPath(); ctx.ellipse(ax, ay - 30, 6.5, 12, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = metal(ctx, ax + 3, 4); ctx.fillRect(ax + 4, ay - 36, 3, 9);
+    // split ring through the punch
+    ctx.strokeStyle = metal(ctx, ax - 11, 22); ctx.lineWidth = 2.6; ctx.beginPath(); ctx.arc(ax, ay - 6, 10, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+
+  // Draw the whole card into ctx (identity transform) with card origin at device (ox, oy), scale s.
+  function drawCard(ctx, s, ox, oy, Lt = layout, o = outline.id, img = portrait, opt = {}) {
+    const Wd = ctx.canvas.width, Hd = ctx.canvas.height, [shapeC, maskC, photoC, tmpC] = scratch(Wd, Hd);
+    const prep = c => { const x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, Wd, Hd); x.setTransform(s, 0, 0, s, ox, oy); return x; };
+    const blit = (c, shadow) => { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); if (shadow && opt.shadow !== false) { ctx.shadowColor = 'rgba(0,0,0,.42)'; ctx.shadowBlur = shadow * s; ctx.shadowOffsetY = shadow / 2 * s; } ctx.drawImage(c, 0, 0); ctx.restore(); };
+    const identity = c => { const x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); return x; };
+
+    // silhouette
+    let x = prep(shapeC); x.fillStyle = COL.surface;
+    for (const [rx, ry, rw, rh, rr] of Lt.rects) { if (rr) { roundRectPath(x, rx, ry, rw, rh, rr); x.fill(); } else x.fillRect(rx, ry, rw, rh); }
+    cutHoles(x, Lt.holes);
+    blit(shapeC, 48);
+
+    // photo, masked by its outline and by the silhouette
+    const m = prep(maskC); fillOutline(m, Lt, o);
+    const p = prep(photoC); coverDraw(p, img, o === 'bleed' ? Lt.block : Lt.frame);
+    const pi = identity(photoC); pi.globalCompositeOperation = 'destination-in'; pi.drawImage(maskC, 0, 0); pi.drawImage(shapeC, 0, 0); pi.globalCompositeOperation = 'source-over';
+    blit(photoC);
+
+    // thin outline for the stepped shapes (mask minus its 1px erosion)
+    if (o === 'wave' || o === 'corners') {
+      const e = identity(tmpC); e.globalCompositeOperation = 'source-over'; e.clearRect(0, 0, Wd, Hd); e.drawImage(maskC, 0, 0);
+      const k = Math.max(1, Math.round(s * .8));
+      e.globalCompositeOperation = 'destination-in'; for (const [dx, dy] of [[k, 0], [-k, 0], [0, k], [0, -k]]) e.drawImage(maskC, dx, dy);
+      const q = identity(photoC); q.globalCompositeOperation = 'source-over'; q.clearRect(0, 0, Wd, Hd); q.drawImage(maskC, 0, 0);
+      q.globalCompositeOperation = 'destination-out'; q.drawImage(tmpC, 0, 0);
+      q.globalCompositeOperation = 'source-in'; q.fillStyle = COL.dim; q.fillRect(0, 0, Wd, Hd); q.globalCompositeOperation = 'source-over';
+      blit(photoC);
+    }
+
+    // coloured accent blocks
+    for (const a of Lt.accents) {
+      const t = prep(tmpC); t.fillStyle = COL[a[4]]; t.fillRect(a[0], a[1], a[2], a[3]);
+      if (a[5]) cutHoles(t, [['c', ...a[5]]]);
+      blit(tmpC, 24);
+    }
+
+    // text, QR, live marker
+    const d = details();
+    ctx.save(); ctx.setTransform(s, 0, 0, s, ox, oy);
+    // shrink the flowing text block until it ends above the card edge it sits on
+    // y: number = fixed, '+n' = n below the previous item, sameAs: i = same top as item i (a second column)
+    const run = (scale, measure) => {
+      let flow = 0, bottom = 0; const starts = [];
+      Lt.items.forEach((it, i) => {
+        const y = it.sameAs != null ? starts[it.sameAs] : typeof it.y === 'string' ? flow + parseFloat(it.y) * (it.fit ? scale : 1) : it.y;
+        starts[i] = y;
+        let b = y;
+        if (it.k === 'qr') { if (!measure) drawQR(ctx, { ...it, y }); b = y + it.s; }
+        else if (it.k === 'rule') { if (!measure) { ctx.fillStyle = '#2e2e33'; ctx.fillRect(it.x, y, it.w, 1); } b = y + 1; }
+        else if (it.k === 'live') { if (!measure) drawLive(ctx, { ...it, y }); b = y + 12; }
+        else b = drawText(ctx, { ...it, y }, d, flow, scale, measure);
+        if (it.k !== 'qr' && it.k !== 'live') flow = it.sameAs != null ? Math.max(flow, b) : b;
+        if (it.fit) bottom = Math.max(bottom, b);
+      });
+      return bottom;
+    };
+    let scale = 1;
+    if (Lt.fitLimit) while (scale > .62 && run(scale, true) > Lt.fitLimit) scale -= .04;
+    run(scale, false);
+    ctx.restore();
+
+    // lanyard layer on top, with a soft contact shadow
+    ctx.save(); ctx.setTransform(s, 0, 0, s, ox, oy);
+    ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 10 * s; ctx.shadowOffsetY = 4 * s;
+    if (opt.lanyard !== false) drawLanyard(ctx, Lt);
+    ctx.restore();
+  }
+
+  // Back of the card: the same silhouette mirrored (so it lines up when the card turns over),
+  // with a dot-grid mark, the holder's name and ID, and the QR to the live card.
+  function drawBack(ctx, s, ox, oy, Lt = layout) {
+    const b = boundsOf(Lt, false), mirrorX = x => 2 * b.x + b.w - x;
+    ctx.save(); ctx.setTransform(-s, 0, 0, s, ox + s * (2 * b.x + b.w), oy);
+    ctx.fillStyle = COL.surface;
+    for (const [rx, ry, rw, rh, rr] of Lt.rects) { if (rr) { roundRectPath(ctx, rx, ry, rw, rh, rr); ctx.fill(); } else ctx.fillRect(rx, ry, rw, rh); }
+    cutHoles(ctx, Lt.holes);
+    for (const a of Lt.accents) { ctx.fillStyle = COL[a[4]]; ctx.fillRect(a[0], a[1], a[2], a[3]); if (a[5]) cutHoles(ctx, [['c', ...a[5]]]); }
+    ctx.restore();
+    // content sits in the largest block of the silhouette
+    const [rx, ry, rw, rh] = Lt.rects.reduce((m, r) => r[2] * r[3] > m[2] * m[3] ? r : m);
+    const X = mirrorX(rx + rw) + 22, Y = Math.max(ry, 0) + 22, Wc = rw - 44, Hc = rh - (Math.max(ry, 0) - ry) - 44;
+    const d = details();
+    ctx.save(); ctx.setTransform(s, 0, 0, s, ox, oy);
+    drawText(ctx, { t: () => 'Pixel ID', x: X, y: Y, font: 'med', size: 15, ls: -1 }, d, 0);
+    drawText(ctx, { t: () => 'Reverse', x: X, y: Y + 2, w: Wc, font: 'monoM', size: 9, color: 'dim', ls: 14, upper: true, align: 'right' }, d, 0);
+    const qs = 64, gridTop = Y + 40, gridBottom = Y + Hc - qs - 28, step = 24, r = 6;
+    const cols = Math.max(1, Math.floor((Wc + step - 2 * r) / step)), rows = Math.max(0, Math.floor((gridBottom - gridTop + step - 2 * r) / step));
+    const gx = X + (Wc - ((cols - 1) * step + 2 * r)) / 2 + r, lit = Math.floor(rows / 2) * cols + Math.floor(cols / 2);
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) { ctx.fillStyle = j * cols + i === lit ? COL.cyan : '#2e2e33'; ctx.beginPath(); ctx.arc(gx + i * step, gridTop + r + j * step, r, 0, Math.PI * 2); ctx.fill(); }
+    drawQR(ctx, { x: X + Wc - qs, y: Y + Hc - qs, s: qs });
+    const ny = drawText(ctx, { t: dd => dd.name, x: X, y: Y + Hc - qs, w: Wc - qs - 16, font: 'med', size: 20, ls: -2, lh: 1.1, maxLines: 2, min: 14 }, d, 0);
+    drawText(ctx, { t: dd => dd.id, x: X, y: ny + 6, font: 'mono', size: 12, color: 'dim', ls: 4 }, d, 0);
+    ctx.restore();
+  }
+
+  // ---------- bridge for the 3D view ----------
+  // The 3D scene uses the 2D card as live textures: `face.canvas` (front, no lanyard, no shadow) and `face.back`.
+  const FACE_S = 2, FACE_PAD = 4;
+  const face = { canvas: mk(2, 2), back: mk(2, 2), key: '', b: null, version: 0, backVersion: 0, backKey: '' };
+  function renderFaces() {
+    const b = boundsOf(layout, false), w = Math.round((b.w + FACE_PAD * 2) * FACE_S), h = Math.round((b.h + FACE_PAD * 2) * FACE_S);
+    const key = `${layout.id}:${w}x${h}`;
+    if (face.key !== key) { face.canvas.width = face.back.width = w; face.canvas.height = face.back.height = h; face.key = key; face.b = { ...b, pad: FACE_PAD }; face.backKey = ''; }
+    const ox = (FACE_PAD - b.x) * FACE_S, oy = (FACE_PAD - b.y) * FACE_S;
+    const fc = face.canvas.getContext('2d'); fc.setTransform(1, 0, 0, 1, 0, 0); fc.clearRect(0, 0, w, h);
+    drawCard(fc, FACE_S, ox, oy, layout, outline.id, portrait, { lanyard: false, shadow: false });
+    face.version++;
+    const d = details(), bk = `${face.key}|${d.name}|${d.id}`;
+    if (bk !== face.backKey) {
+      const bc = face.back.getContext('2d'); bc.setTransform(1, 0, 0, 1, 0, 0); bc.clearRect(0, 0, w, h);
+      drawBack(bc, FACE_S, ox, oy, layout); face.backKey = bk; face.backVersion++;
+    }
+  }
+
+  // ---------- on-screen card ----------
+  const canvas = $('card'), cctx = canvas.getContext('2d');
+  const PAD = 32, SHADOW_EXTRA = 40;
+  let view = { s: 1, ox: 0, oy: 0 };
+  function layoutView() {
+    const b = boundsOf(layout), lw = b.w + PAD * 2, lh = b.h + PAD * 2 + SHADOW_EXTRA;
+    // fit the card (and lanyard) to the column width and to the window height
+    const avail = canvas.parentElement.clientWidth || Math.min(lw, window.innerWidth - 32);
+    const cssW = Math.max(200, Math.min(avail, lw * 1.1, Math.max(360, window.innerHeight - 64) * lw / lh));
+    canvas.style.width = Math.round(cssW) + 'px';
+    canvas.style.aspectRatio = `${lw} / ${lh}`;
+    const s = clamp(cssW * (window.devicePixelRatio || 1) / lw, .5, 3);
+    canvas.width = Math.round(lw * s); canvas.height = Math.round(lh * s);
+    view = { s, ox: (PAD - b.x) * s, oy: (PAD - b.y) * s };
+  }
+  function describe() {
+    const d = details();
+    canvas.setAttribute('aria-label', `Pixel ID card, ${layout.name} layout with a ${outline.name.toLowerCase()} photo outline${lanyard.id === 'none' ? '' : `, on a ${lanyard.name.toLowerCase()} lanyard`}. ${d.name}, ${d.role}, based in ${d.city}. ID ${d.id}. Portrait effect: ${d.effect}.`);
+  }
+
+  // ---------- loop ----------
+  let lastDescribedFx = -1;
+  function frame(now) {
+    renderPortrait(now);
+    if (view3d.on) renderFaces();
+    else { cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, canvas.width, canvas.height); drawCard(cctx, view.s, view.ox, view.oy); }
+    if (cur !== lastDescribedFx) { lastDescribedFx = cur; describe(); }
+    if (recording) { drawStory(recording.x); recording.progress(); if (recording.stopAfterFrame) recording.stop(); }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- controls ----------
+  const status = $('status');
+  function chips(container, name, options, isOn, onPick) {
+    container.innerHTML = '';
+    options.forEach((op, i) => {
+      const lab = document.createElement('label'); lab.className = 'chip';
+      const inp = document.createElement('input'); inp.type = 'radio'; inp.name = name; inp.id = `${name}-${op.id}`; inp.value = op.id; inp.checked = isOn(op, i);
+      inp.addEventListener('change', () => onPick(op, i));
+      const sp = document.createElement('span'); sp.textContent = op.name;
+      lab.append(inp, sp); container.append(lab);
+    });
+  }
+  const fitPortrait = () => { const [, , bw, bh] = outline.id === 'bleed' ? layout.block : layout.frame; setPortraitAspect(bw / bh); };
+  chips($('layout-chips'), 'layout', LAYOUTS, l => l === layout, l => { layout = l; saved.layout = l.id; save(); fitPortrait(); layoutView(); describe(); });
+  chips($('outline-chips'), 'outline', OUTLINES, o => o === outline, o => { outline = o; saved.outline = o.id; save(); fitPortrait(); describe(); });
+  chips($('lanyard-chips'), 'lanyard', LANYARDS, l => l === lanyard, l => { lanyard = l; saved.lanyard = l.id; save(); layoutView(); describe(); });
+  chips($('hardware-chips'), 'hardware', HARDWARE, h => h.id === hardware, h => { hardware = h.id; saved.hardware = h.id; save(); });
+  for (const [id, key, get, set] of [['strap-color', 'strapColor', () => strapColor, v => { strapColor = v; }], ['pattern-color', 'patternColor', () => patternColor, v => { patternColor = v; }]]) {
+    const el = $(id); el.value = get();
+    el.addEventListener('input', () => { set(el.value); saved[key] = el.value; save(); });
+  }
+  const effectOptions = [{ id: 'auto', name: 'Cycle all' }, ...effects.map((e, i) => ({ id: String(i), name: e.name }))];
+  const renderEffectChips = () => chips($('effect-chips'), 'effect', effectOptions, op => op.id === String(lock), op => {
+    if (op.id === 'auto') { lock = 'auto'; modeStart = performance.now(); }
+    else { lock = +op.id; startTransition(performance.now(), lock); }
+    saved.effect = lock; save();
+  });
+  renderEffectChips();
+
+  for (const [id, key] of [['f-name', 'name'], ['f-role', 'role'], ['f-city', 'city']]) {
+    const el = $(id); el.value = saved[key] || ''; el.placeholder = DEFAULTS[key];
+    el.addEventListener('input', () => { saved[key] = el.value; save(); describe(); });
+  }
+  $('ro-id').textContent = details().id;
+
+  // ---------- 3D view switch ----------
+  const view3d = { on: false, available: false, api: null };
+  function setView(on) {
+    view3d.on = !!on && view3d.available;
+    canvas.hidden = view3d.on; $('stage3d').hidden = !view3d.on;
+    $('flip-btn').disabled = !view3d.on;
+    if (view3d.api) view3d.api.setActive(view3d.on);
+    if (!view3d.on) layoutView();
+  }
+  const renderViewChips = () => chips($('view-chips'), 'view', [{ id: '3d', name: '3D' }, { id: 'flat', name: 'Flat' }], op => (op.id === '3d') === view3d.on, op => { saved.view = op.id; save(); setView(op.id === '3d'); });
+  $('flip-btn').addEventListener('click', () => view3d.api && view3d.api.flip());
+  window.PixelID = {
+    face, renderFaces,
+    get layout() { return layout; },
+    get lanyard() { return lanyard.id; }, get strapColor() { return strapColor; }, get patternColor() { return patternColor; }, get hardware() { return hardware; },
+    get reduced() { return reduced; },
+    nextEffect: () => canvas.dispatchEvent(new Event('click')),
+    ready3d(api) { view3d.available = true; view3d.api = api; $('view-fieldset').hidden = false; setView(saved.view !== 'flat'); renderViewChips(); },
+  };
+
+  canvas.addEventListener('click', () => {
+    if (recording) return;
+    if (lock === 'auto') startTransition(performance.now());
+    else { lock = (lock + 1) % effects.length; saved.effect = lock; save(); startTransition(performance.now(), lock); renderEffectChips(); }
+  });
+
+  // photo input
+  function loadFile(file) {
+    if (!file || !file.type.startsWith('image/')) { status.textContent = 'That file is not an image. Try a JPG or PNG.'; return; }
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      setPhoto(img, false); URL.revokeObjectURL(url);
+      saved.photo = src.toDataURL('image/jpeg', 0.85);
+      status.textContent = save() ? 'Photo saved in this browser.' : 'Photo loaded. This browser could not save it, so it resets on reload.';
+    };
+    img.onerror = () => { status.textContent = 'Could not read that image. Try another file.'; URL.revokeObjectURL(url); };
+    img.src = url;
+  }
+  $('photo-input').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+  $('sample-btn').addEventListener('click', () => { setPhoto(null, true); delete saved.photo; save(); status.textContent = 'Back to the sample face.'; });
+  const stage = $('stage');
+  stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('dragging'); });
+  stage.addEventListener('dragleave', () => stage.classList.remove('dragging'));
+  stage.addEventListener('drop', e => { e.preventDefault(); stage.classList.remove('dragging'); loadFile(e.dataTransfer.files[0]); });
+  document.addEventListener('paste', e => { const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/')); if (f) { e.preventDefault(); loadFile(f); } });
+
+  // ---------- export ----------
+  async function saveFile(filename, blob) {
+    if (!window.claude || !window.claude.use) {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+      document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      status.textContent = `Downloaded ${filename}.`; return true;
+    }
+    let dl = null; try { dl = await window.claude.use('downloads'); } catch (e) { dl = null; }
+    if (!dl) { status.textContent = 'Saving files is not available in this view. Open the card in claude.ai to export.'; return false; }
+    try { await dl.save({ filename, data: blob }); status.textContent = `Saved ${filename}.`; return true; }
+    catch (e) {
+      const c = e && e.code;
+      status.textContent = c === 'declined' ? 'Save cancelled.' : c === 'rate_limited' ? 'Another save is still open. Finish it, then try again.' : c === 'too_large' ? 'That file is too large to save here.' : 'Saving files is not available in this view.';
+      return false;
+    }
+  }
+  const toBlob = c => new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('encode')), 'image/png'));
+  const bytes = async c => new Uint8Array(await (await toBlob(c)).arrayBuffer());
+  const kb = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
+  function effectHi() { const c = mk(W * 2, H * 2), x = c.getContext('2d'); x.setTransform(2, 0, 0, 2, 0, 0); effects[cur].draw(x, performance.now() / 1000); return c; }
+  function cardCanvas(s = 3) {
+    const b = boundsOf(layout), pad = 24, c = mk(Math.round((b.w + pad * 2) * s), Math.round((b.h + pad * 2 + 24) * s));
+    drawCard(c.getContext('2d'), s, (pad - b.x) * s, (pad - b.y) * s, layout, outline.id, effectHi());
+    return c;
+  }
+  function drawStory(x) {
+    x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = '#0c0c0e'; x.fillRect(0, 0, 1080, 1920);
+    const b = boundsOf(layout), s = Math.min(960 / b.w, 1700 / b.h);
+    drawCard(x, s, (1080 - b.w * s) / 2 - b.x * s, (1920 - b.h * s) / 2 - b.y * s);
+  }
+
+  $('exp-png').addEventListener('click', async () => saveFile(`pixel-id-${layout.id}.png`, await toBlob(cardCanvas(3))));
+
+  const VTYPE = typeof MediaRecorder === 'undefined' ? null : ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+  const VEXT = VTYPE && VTYPE.startsWith('video/mp4') ? 'mp4' : 'webm';
+  const VSECS = Math.round(effects.length * (REC_HOLD + TRANS) / 1000);
+  let video = null;
+  const vBtn = $('exp-video'), vLabel = $('exp-video-label'), vMeta = $('exp-video-meta');
+  const resetVideoBtn = () => { vBtn.classList.remove('ready'); vLabel.textContent = 'Video loop'; vMeta.textContent = `${VEXT.toUpperCase()} · ~${VSECS} s`; };
+  if (!VTYPE) { vBtn.disabled = true; vMeta.textContent = 'Not supported here'; } else resetVideoBtn();
+  vBtn.addEventListener('click', async () => {
+    if (video) { if (await saveFile(`pixel-id-${layout.id}.${VEXT}`, video)) { video = null; resetVideoBtn(); } return; }
+    if (recording || !VTYPE) return;
+    const c = mk(1080, 1920), x = c.getContext('2d'); drawStory(x);
+    const mr = new MediaRecorder(c.captureStream(30), { mimeType: VTYPE, videoBitsPerSecond: 8e6 });
+    const chunks = []; mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopped = new Promise(r => { mr.onstop = r; });
+    vBtn.disabled = true; vLabel.textContent = 'Recording…'; status.textContent = 'Recording every effect. Keep this tab open.';
+    if (next !== -1) finish(performance.now());
+    modeStart = performance.now();
+    recording = { x, count: 0, stopAfterFrame: false,
+      progress() { vMeta.textContent = `${Math.min(this.count + 1, effects.length)} of ${effects.length}`; },
+      stop() { recording = null; setTimeout(() => mr.stop(), 120); } };
+    mr.start(250); await stopped;
+    video = new Blob(chunks, { type: VTYPE.split(';')[0] });
+    vBtn.disabled = false; vBtn.classList.add('ready'); vLabel.textContent = 'Save video'; vMeta.textContent = `${VEXT.toUpperCase()} · ${kb(video.size)}`;
+    status.textContent = 'Video ready. Click Save video to keep it.';
+  });
+
+  // wallet kit
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function makeZip(files) {
+    const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+    for (const f of files) {
+      const name = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(12, 33, true);
+      h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+      parts.push(h, name, data);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(14, 33, true);
+      c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+      central.push(c, name); off += 30 + name.length + data.length;
+    }
+    const size = central.reduce((s, p) => s + p.byteLength, 0), e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, size, true); e.setUint32(16, off, true);
+    return new Blob([...parts, ...central, e], { type: 'application/zip' });
+  }
+  const crop = (srcC, sx, sy, sw, sh, w, h) => { const c = mk(w, h), x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(srcC, sx, sy, sw, sh, 0, 0, w, h); return c; };
+  const initials = () => { const w = details().name.split(/\s+/); return ((w[0] || '?')[0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase(); };
+  function monogram(size) { const c = mk(size, size), x = c.getContext('2d'); x.fillStyle = COL.surface; x.fillRect(0, 0, size, size); x.fillStyle = COL.ink; x.font = `600 ${Math.round(size * .4)}px ${SANS}`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(initials(), size / 2, size / 2 + size * .02); x.fillStyle = COL.cyan; x.fillRect(size * .7, size * .7, size * .08, size * .08); return c; }
+  function logoMark(w, h) { const c = mk(w, h), x = c.getContext('2d'), s = h * .44, y = (h - s) / 2; [COL.blue, COL.cyan, COL.white].forEach((col, i) => { x.fillStyle = col; x.fillRect(i * s, y, s, s); }); return c; }
+  $('exp-wallet').addEventListener('click', async () => {
+    const btn = $('exp-wallet'); btn.disabled = true; status.textContent = 'Building the wallet kit…';
+    try {
+      const hi = effectHi(), d = details();
+      const hx = (hi.width - 960) / 2, square = n => crop(hi, hx, 80, 960, 960, n, n), band = crop(hi, hx, 384, 960, 312, 1032, 336);
+      const passJson = { formatVersion: 1, passTypeIdentifier: 'pass.REPLACE.with.your.pass.type.id', teamIdentifier: 'REPLACE_TEAM_ID', serialNumber: saved.id, organizationName: d.name, description: `Digital ID card for ${d.name}`, logoText: 'Pixel ID', foregroundColor: 'rgb(238, 238, 239)', backgroundColor: 'rgb(28, 28, 31)', labelColor: 'rgb(133, 133, 140)', expirationDate: expires.toISOString(),
+        generic: { primaryFields: [{ key: 'name', label: 'NAME', value: d.name }], secondaryFields: [{ key: 'role', label: 'ROLE', value: d.role }, { key: 'city', label: 'BASED IN', value: d.city }], auxiliaryFields: [{ key: 'id', label: 'ID NO.', value: d.id }, { key: 'exp', label: 'VALID THRU', value: d.exp }], backFields: [{ key: 'live', label: 'Live card', value: CARD_URL }] },
+        barcodes: [{ format: 'PKBarcodeFormatQR', message: CARD_URL, messageEncoding: 'iso-8859-1', altText: d.id }] };
+      const tm = (header, body, id) => ({ id, header, body });
+      const googleJson = { id: `REPLACE_ISSUER_ID.pixel-id-${saved.id}`, classId: 'REPLACE_ISSUER_ID.pixel-id', state: 'ACTIVE', cardTitle: { defaultValue: { language: 'en-US', value: 'Pixel ID' } }, header: { defaultValue: { language: 'en-US', value: d.name } }, subheader: { defaultValue: { language: 'en-US', value: d.role } }, textModulesData: [tm('Based in', d.city, 'city'), tm('ID No.', d.id, 'id'), tm('Valid thru', d.exp, 'exp')], hexBackgroundColor: '#1c1c1f', logo: { sourceUri: { uri: 'https://REPLACE.example/google/logo.png' } }, heroImage: { sourceUri: { uri: 'https://REPLACE.example/google/hero.png' } }, barcode: { type: 'QR_CODE', value: CARD_URL, alternateText: d.id }, validTimeInterval: { end: { date: expires.toISOString() } } };
+      const readme = ['PIXEL ID · WALLET KIT', `Layout: ${layout.name} · Photo outline: ${outline.name} · Effect: ${effects[cur].name}`, '', 'card.png                 The full card at 3x.', '', 'APPLE WALLET (generic pass)', '  apple/icon*.png        Notification and lock-screen icon (29, 58, 87 px).', '  apple/logo*.png        Top-left logo (160x50, 320x100, 480x150).', '  apple/thumbnail*.png   Portrait beside the name (90, 180, 270 px).', '  apple/pass.json        Pass details, filled in. Replace passTypeIdentifier and', '                         teamIdentifier with your Apple Developer values, then sign.', '', 'GOOGLE WALLET (generic pass)', '  google/logo.png        660 x 660. Google crops it to a circle.', '  google/hero.png        1032 x 336 banner under the details.', '  google/generic-object.json  Pass details, filled in. Replace REPLACE_ISSUER_ID', '                         and host both images at public https URLs.', '', 'Wallet passes cannot animate. The QR code opens the live card:', CARD_URL, 'Share that page from claude.ai first, or other people will not be able to open it.'].join('\n');
+      const files = [
+        { name: 'card.png', data: await bytes(cardCanvas(3)) },
+        ...[[29, ''], [58, '@2x'], [87, '@3x']].map(([n, sfx]) => ({ name: `apple/icon${sfx}.png`, n, kind: 'icon' })),
+        ...[[160, 50, ''], [320, 100, '@2x'], [480, 150, '@3x']].map(([w, h, sfx]) => ({ name: `apple/logo${sfx}.png`, w, h, kind: 'logo' })),
+        ...[[90, ''], [180, '@2x'], [270, '@3x']].map(([n, sfx]) => ({ name: `apple/thumbnail${sfx}.png`, n, kind: 'thumb' })),
+        { name: 'apple/pass.json', data: JSON.stringify(passJson, null, 2) },
+        { name: 'google/logo.png', n: 660, kind: 'icon' },
+        { name: 'google/hero.png', data: await bytes(band) },
+        { name: 'google/generic-object.json', data: JSON.stringify(googleJson, null, 2) },
+        { name: 'README.txt', data: readme },
+      ];
+      for (const f of files) if (!f.data) f.data = await bytes(f.kind === 'icon' ? monogram(f.n) : f.kind === 'logo' ? logoMark(f.w, f.h) : square(f.n));
+      await saveFile('pixel-id-wallet-kit.zip', makeZip(files.map(({ name, data }) => ({ name, data }))));
+    } catch (e) { status.textContent = 'Could not build the kit. Try again.'; }
+    finally { btn.disabled = false; }
+  });
+
+  // ---------- boot ----------
+  function boot() {
+    fitPortrait(); layoutView(); describe();
+    addEventListener('resize', layoutView);
+    requestAnimationFrame(frame);
+  }
+  setPhoto(null, true);
+  if (saved.photo) { const img = new Image(); img.onload = () => setPhoto(img, false); img.src = saved.photo; }
+  save();
+  const fontsReady = document.fonts ? Promise.all(['500 14px "Geist Mono"', '400 12px "Geist Mono"', '500 20px "Geist"', '700 20px "Geist"', '400 13px "Geist"'].map(f => document.fonts.load(f))).catch(() => {}) : Promise.resolve();
+  Promise.race([fontsReady, new Promise(r => setTimeout(r, 1500))]).then(boot);
+})();
+</script>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+// 3D view: the 2D card becomes a live texture on a thin card that hangs from a simulated lanyard.
+// If anything here fails to load, the flat 2D card simply stays on screen.
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const P = window.PixelID;
+const host = document.getElementById('stage3d');
+const U = 1 / 100;                         // card pixels -> world units
+const T = 0.035;                           // card thickness
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+host.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.3); keyLight.position.set(2.5, 4, 6); scene.add(keyLight);
+const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 200);
+
+// ---------- card ----------
+const card = new THREE.Group(); card.rotation.order = 'ZYX'; scene.add(card);
+let faceTex = null, backTex = null, cardKey = '', cardMeshes = [], hitMeshes = [], cardBottom = 6, cardWidth = 4;
+const cardCentre = new THREE.Vector2();
+const metalMat = new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.28 });
+const ring = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.014, 12, 40), metalMat);
+const clip = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.4, 0.06), metalMat);
+card.add(ring, clip);
+
+function buildCard() {
+  for (const m of cardMeshes) { card.remove(m); m.geometry.dispose(); m.material.dispose(); }
+  cardMeshes = []; if (faceTex) faceTex.dispose(); if (backTex) backTex.dispose();
+  const f = P.face, b = f.b, at = P.layout.attach || { x: 180, y: 0 };
+  faceTex = new THREE.CanvasTexture(f.canvas); faceTex.colorSpace = THREE.SRGBColorSpace; faceTex.anisotropy = 4;
+  backTex = new THREE.CanvasTexture(f.back); backTex.colorSpace = THREE.SRGBColorSpace; backTex.anisotropy = 4;
+  const w = (b.w + b.pad * 2) * U, h = (b.h + b.pad * 2) * U;
+  const cx = (b.x - b.pad + (b.w + 2 * b.pad) / 2 - at.x) * U, cy = -(b.y - b.pad + (b.h + 2 * b.pad) / 2 - at.y) * U;
+  const geo = new THREE.PlaneGeometry(w, h);
+  // the printed face glows at its true colours (emissive), lighting and a clear coat add shading and shine on top
+  const faceMat = tex => new THREE.MeshPhysicalMaterial({ map: tex, color: 0x3a3a3a, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.82, alphaTest: 0.5, roughness: 0.38, clearcoat: 0.55, clearcoatRoughness: 0.18, envMapIntensity: 0.45 });
+  const front = new THREE.Mesh(geo, faceMat(faceTex));
+  front.position.set(cx, cy, T / 2);
+  const back = new THREE.Mesh(geo.clone(), faceMat(backTex));
+  back.rotation.y = Math.PI; back.position.set(cx, cy, -T / 2);
+  cardMeshes.push(front, back); hitMeshes = [front, back];
+  // stacked silhouettes in between give the card a visible edge when it turns
+  for (let i = 1; i < 7; i++) {
+    const e = new THREE.Mesh(geo.clone(), new THREE.MeshStandardMaterial({ map: faceTex, color: 0x26262b, alphaTest: 0.5, roughness: 0.7, side: THREE.DoubleSide }));
+    e.position.set(cx, cy, -T / 2 + T * i / 7); cardMeshes.push(e);
+  }
+  cardMeshes.forEach(m => card.add(m));
+  cardCentre.set(cx, cy);
+  cardBottom = -(cy - h / 2); cardWidth = w;
+  ring.position.set(0, 0.06, 0); ring.rotation.set(0, Math.PI / 2, 0);
+  clip.position.set(0, -0.1, 0);
+  resetRope(); frameCamera();
+}
+
+// ---------- rope (verlet) ----------
+// points: 0 anchor (above the frame) .. K clamp, K+1 clasp, K+2 attach (card hole), K+3 card centre of mass
+const K = 16, STRAP = 3.6, CLAMP_DROP = 0.55, CLASP_DROP = 0.28;
+const pts = [], prev = [], invM = [], rest = [];
+const C = K + 3, A = K + 2;
+function resetRope() {
+  pts.length = prev.length = invM.length = rest.length = 0;
+  const top = CLAMP_DROP + CLASP_DROP + STRAP;
+  for (let i = 0; i <= K; i++) pts.push(new THREE.Vector2(0, top - STRAP * i / K));
+  pts.push(new THREE.Vector2(0, CLASP_DROP), new THREE.Vector2(0, 0));
+  const dist = cardCentre.length();
+  pts.push(new THREE.Vector2(0, -dist));
+  for (const p of pts) prev.push(p.clone());
+  for (let i = 0; i < pts.length; i++) invM.push(i === 0 ? 0 : i === C ? 0.2 : 1);
+  for (let i = 0; i < K; i++) rest.push(STRAP / K);
+  rest.push(CLAMP_DROP, CLASP_DROP, dist);
+}
+
+let dragging = false, down = null;
+const dragTarget = new THREE.Vector2(), grabOff = new THREE.Vector2();
+let yaw = 0, yawVel = 0, yawTarget = 0, tilt = 0, tiltVel = 0, hoverX = 0, hoverY = 0, hoverYaw = 0, hoverTilt = 0, hovering = false;
+// Units: 1 world unit ≈ 2.4 cm of card, so real gravity is ~400 u/s². A softer value keeps the swing lively but readable.
+const G = -42, DT = 1 / 120, SUB = 2, DAMP = 0.991;
+const reduced = P.reduced;
+const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+function step() {
+  const h = DT / SUB;
+  for (let s = 0; s < SUB; s++) {
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i], q = prev[i];
+      if (dragging && i === C) { q.copy(p); p.lerp(dragTarget, 0.18); continue; }
+      const damp = reduced ? 0.9 : DAMP, vx = (p.x - q.x) * damp, vy = (p.y - q.y) * damp;
+      q.copy(p); p.x += vx; p.y += vy + G * h * h;
+    }
+    for (let it = 0; it < 14; it++) for (let i = 0; i < rest.length; i++) {
+      const a = pts[i], b = pts[i + 1], dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1e-6;
+      if (i < K && len < rest[i]) continue;                       // straps go slack, hardware stays rigid
+      const wa = invM[i], wb = dragging && i + 1 === C ? 0 : invM[i + 1], sum = wa + wb; if (!sum) continue;
+      const diff = (len - rest[i]) / len;
+      a.x += dx * diff * wa / sum; a.y += dy * diff * wa / sum;
+      b.x -= dx * diff * wb / sum; b.y -= dy * diff * wb / sum;
+    }
+  }
+  // springs for turning (yaw) and tipping (tilt), nudged by how fast the card moves
+  const vx = THREE.MathUtils.clamp((pts[C].x - prev[C].x) / h, -6, 6), vy = THREE.MathUtils.clamp((pts[C].y - prev[C].y) / h, -6, 6);
+  if (reduced) { yaw = yawTarget; yawVel = 0; tilt = 0; tiltVel = 0; hoverYaw = hoverTilt = 0; return; }
+  // critically-leaning springs (damping ratio ~0.65): a flip lands with one soft overshoot, not a wobble
+  yawVel += (-(yaw - yawTarget) * 30 - yawVel * 7) * DT + vx * 0.006;
+  yawVel = THREE.MathUtils.clamp(yawVel, -9, 9);
+  yaw += yawVel * DT;
+  tiltVel += (-tilt * 36 - tiltVel * 8) * DT - vy * 0.006;
+  tilt += tiltVel * DT;
+  const ht = hovering && !dragging ? 1 : 0, ease = 1 - Math.pow(0.001, DT);   // frame-rate independent follow
+  hoverYaw += (hoverX * 0.3 * ht - hoverYaw) * ease; hoverTilt += (-hoverY * 0.2 * ht - hoverTilt) * ease;
+}
+
+// ---------- lanyard meshes ----------
+const strapCanvas = document.createElement('canvas'); strapCanvas.width = 64; strapCanvas.height = 512;
+const strapTex = new THREE.CanvasTexture(strapCanvas); strapTex.colorSpace = THREE.SRGBColorSpace; strapTex.wrapT = THREE.RepeatWrapping; strapTex.anisotropy = 8;
+const strapMat = new THREE.MeshStandardMaterial({ map: strapTex, roughness: 0.75, side: THREE.DoubleSide });
+const hash = (a, b) => { let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+function paintStrap() {
+  const x = strapCanvas.getContext('2d'), st = P.lanyard;
+  x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = P.strapColor; x.fillRect(0, 0, 64, 512);
+  if (st === 'flat') {
+    x.strokeStyle = 'rgba(255,255,255,.35)'; x.lineWidth = 2; x.setLineDash([10, 7]);
+    for (const xx of [8, 56]) { x.beginPath(); x.moveTo(xx, 0); x.lineTo(xx, 512); x.stroke(); }
+    x.setLineDash([]);
+  } else if (st === 'printed') {
+    x.save(); x.translate(32, 0); x.rotate(Math.PI / 2);
+    x.font = '500 26px "Geist Mono", ui-monospace, monospace'; x.textBaseline = 'middle'; x.fillStyle = P.patternColor;
+    const word = 'PIXEL ID · ', ww = x.measureText(word).width, n = Math.max(1, Math.round(512 / ww));
+    x.scale(512 / (n * ww), 1); for (let i = 0; i < n; i++) x.fillText(word, i * ww, 1);
+    x.restore();
+  } else if (st === 'pixel') {
+    x.fillStyle = P.patternColor;
+    for (let r = 0; r < 32; r++) for (let c = 0; c < 4; c++) if (hash(r * 7, c) > 0.58) x.fillRect(c * 16, r * 16, 16, 16);
+  } else if (st === 'cord') {
+    x.strokeStyle = P.patternColor; x.globalAlpha = 0.6; x.lineWidth = 6;
+    for (let k = -64; k < 512 + 64; k += 22) { x.beginPath(); x.moveTo(0, k); x.lineTo(64, k + 40); x.stroke(); }
+    x.globalAlpha = 1;
+  }
+  const g = x.createLinearGradient(0, 0, 64, 0); g.addColorStop(0, 'rgba(255,255,255,.18)'); g.addColorStop(0.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,.28)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 512);
+  strapTex.needsUpdate = true;
+}
+function makeRibbon(n) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2 * 2), 2));
+  const nrm = new Float32Array(n * 2 * 3); for (let i = 0; i < n * 2; i++) nrm[i * 3 + 2] = 1;
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  const idx = []; for (let i = 0; i < n - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, strapMat); m.frustumCulled = false; scene.add(m); return m;
+}
+function updateRibbon(mesh, centres, width, z, twistAtEnd) {
+  const pos = mesh.geometry.attributes.position.array, uv = mesh.geometry.attributes.uv.array, n = centres.length;
+  let v = 0;
+  for (let i = 0; i < n; i++) {
+    const a = centres[Math.max(0, i - 1)], b = centres[Math.min(n - 1, i + 1)];
+    let tx = b.x - a.x, ty = b.y - a.y; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+    const tw = (twistAtEnd || 0) * Math.pow(i / Math.max(1, n - 1), 2), cw = Math.cos(tw) * width / 2, zw = Math.sin(tw) * width / 2;
+    const px = -ty * cw, py = tx * cw;
+    pos.set([centres[i].x - px, centres[i].y - py, z - zw, centres[i].x + px, centres[i].y + py, z + zw], i * 6);
+    if (i) v += Math.hypot(centres[i].x - centres[i - 1].x, centres[i].y - centres[i - 1].y);
+    uv.set([0, v / (width * 8), 1, v / (width * 8)], i * 4);
+  }
+  mesh.geometry.attributes.position.needsUpdate = true; mesh.geometry.attributes.uv.needsUpdate = true;
+}
+const ribbons = [makeRibbon(K + 1), makeRibbon(K + 1)], loop = makeRibbon(2);
+const clamp = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.09), metalMat);
+const swivel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.14, 16), metalMat);
+const clasp = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.017, 10, 28), metalMat); clasp.scale.set(1, 1.7, 1);
+const BEADS = 420, beads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03, 10, 8), metalMat, BEADS);
+beads.frustumCulled = false;
+scene.add(clamp, swivel, clasp, beads);
+const METAL = { silver: [0xdfe2e7, 1, 0.26], black: [0x2b2c31, 0.7, 0.35], gold: [0xe0b961, 1, 0.3] };
+let styleKey = '';
+function applyStyle() {
+  const key = [P.lanyard, P.strapColor, P.patternColor, P.hardware, cardKey].join('|');
+  if (key === styleKey) return;
+  const lanyardChanged = styleKey.split('|')[0] !== P.lanyard;
+  styleKey = key;
+  paintStrap();
+  const [c, m, r] = METAL[P.hardware] || METAL.silver; metalMat.color.setHex(c); metalMat.metalness = m; metalMat.roughness = r;
+  const none = P.lanyard === 'none', chain = P.lanyard === 'chain';
+  ribbons.forEach(rb => { rb.visible = !none && !chain; }); loop.visible = !none && !chain; beads.visible = chain;
+  clamp.visible = swivel.visible = clasp.visible = !none;
+  ring.visible = !none; clip.visible = !none && (P.layout.attach || {}).kind === 'clip';
+  clamp.scale.set(P.lanyard === 'cord' || chain ? 0.45 : 1, 1, 1);
+  if (lanyardChanged) frameCamera();
+}
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1);
+function updateLanyard() {
+  const st = P.lanyard; if (st === 'none') return;
+  const clampP = pts[K], cordLike = st === 'cord' || st === 'chain';
+  const width = st === 'cord' ? 0.075 : 0.22, spread = cordLike ? 0.04 : 0.09;
+  const sides = [-1, 1].map(side => pts.slice(0, K + 1).map(p => new THREE.Vector2(p.x + side * (Math.max(0, p.y - clampP.y) * 0.3 + spread), p.y)));
+  const twist = (yaw + hoverYaw) * 0.6;
+  if (st === 'chain') {
+    let n = 0;
+    for (const line of [...sides, [pts[K], pts[K + 1]]]) for (let i = 0; i < line.length - 1 && n < BEADS; i++) {
+      const a = line[i], b = line[i + 1], l = a.distanceTo(b), k = Math.max(1, Math.floor(l / 0.07));
+      for (let j = 0; j < k && n < BEADS; j++) { const t = j / k; _v.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 0); _m.compose(_v, _q, _s); beads.setMatrixAt(n++, _m); }
+    }
+    beads.count = n; beads.instanceMatrix.needsUpdate = true;
+  } else {
+    updateRibbon(ribbons[0], sides[0], width, 0.012, twist);
+    updateRibbon(ribbons[1], sides[1], width, -0.012, twist);
+    updateRibbon(loop, [pts[K], pts[K + 1]], cordLike ? 0.07 : 0.12, 0.005, twist);
+  }
+  const ang = Math.atan2(pts[K + 1].y - pts[K].y, pts[K + 1].x - pts[K].x) + Math.PI / 2;
+  clamp.position.set(clampP.x, clampP.y, 0); clamp.rotation.set(0, twist, ang);
+  const ang2 = Math.atan2(pts[A].y - pts[K + 1].y, pts[A].x - pts[K + 1].x) + Math.PI / 2;
+  swivel.position.set(pts[K + 1].x, pts[K + 1].y + 0.02, 0); swivel.rotation.set(0, twist, ang);
+  clasp.position.set((pts[K + 1].x + pts[A].x) / 2, (pts[K + 1].y + pts[A].y) / 2 - 0.01, 0); clasp.rotation.set(0, twist * 0.5, ang2);
+}
+
+// ---------- camera ----------
+let viewW = 0, viewH = 0;
+function sizeHost() {
+  const w = host.parentElement.clientWidth || 400;
+  const h = Math.round(Math.min(window.innerHeight - 64, w * 1.55, 980));
+  if (w !== viewW || h !== viewH) { viewW = w; viewH = h; host.style.height = h + 'px'; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); frameCamera(); }
+}
+function frameCamera() {
+  const top = P.lanyard === 'none' ? 0.4 : CLAMP_DROP + CLASP_DROP + 0.75, bottom = -cardBottom - 0.35;
+  const midY = (top + bottom) / 2, half = (top - bottom) / 2, fov = THREE.MathUtils.degToRad(camera.fov) / 2;
+  const dist = Math.max(half / Math.tan(fov), (cardWidth / 2 + 0.6) / (Math.tan(fov) * camera.aspect)) * 1.04;
+  camera.position.set(0, midY, dist); camera.lookAt(0, midY, 0);
+}
+
+// ---------- pointer ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hitP = new THREE.Vector3();
+const setNdc = e => { const r = renderer.domElement.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); };
+host.addEventListener('pointerdown', e => {
+  if (dragging) return;                                   // ignore a second finger mid-drag
+  setNdc(e); if (!ray.intersectObjects(hitMeshes).length) return;
+  ray.ray.intersectPlane(plane, hitP); grabOff.set(pts[C].x - hitP.x, pts[C].y - hitP.y); dragTarget.copy(pts[C]);
+  dragging = true; down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+  host.setPointerCapture(e.pointerId); host.classList.add('dragging');
+});
+host.addEventListener('pointermove', e => {
+  setNdc(e);
+  if (dragging) { if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) down.moved = true; if (ray.ray.intersectPlane(plane, hitP)) dragTarget.set(hitP.x + grabOff.x, hitP.y + grabOff.y); return; }
+  if (!canHover) return;
+  hovering = ray.intersectObjects(hitMeshes).length > 0; hoverX = ndc.x; hoverY = ndc.y;
+});
+const endDrag = () => {
+  if (!dragging) return; dragging = false; host.classList.remove('dragging');
+  // keep the throw believable: cap the release speed of every point
+  const maxStep = 5 * DT / SUB;
+  for (let i = 1; i < pts.length; i++) { const dx = pts[i].x - prev[i].x, dy = pts[i].y - prev[i].y, l = Math.hypot(dx, dy); if (l > maxStep) { prev[i].x = pts[i].x - dx / l * maxStep; prev[i].y = pts[i].y - dy / l * maxStep; } }
+  if (down && !down.moved && performance.now() - down.t < 350) P.nextEffect();
+};
+host.addEventListener('pointerup', endDrag); host.addEventListener('pointercancel', endDrag);
+host.addEventListener('pointerleave', () => { hovering = false; });
+host.addEventListener('dblclick', () => flip());
+function flip() { yawTarget += Math.PI; }
+
+// ---------- loop ----------
+let active = false, lastFace = -1, lastBack = -1, raf = 0, lastT = 0, acc = 0;
+function tick(now = performance.now()) {
+  if (!active) return;
+  raf = requestAnimationFrame(tick);
+  // fixed-step physics driven by real time, so the swing settles at the same speed at any frame rate
+  acc += Math.min(0.25, Math.max(0, (now - (lastT || now)) / 1000)); lastT = now;
+  sizeHost();
+  if (P.face.key !== cardKey) { cardKey = P.face.key; buildCard(); styleKey = ''; lastFace = lastBack = -1; }
+  if (P.face.version !== lastFace) { lastFace = P.face.version; faceTex.needsUpdate = true; }
+  if (P.face.backVersion !== lastBack) { lastBack = P.face.backVersion; backTex.needsUpdate = true; }
+  applyStyle();
+  let n = 0; while (acc >= DT && n++ < 60) { step(); acc -= DT; }
+  const a = pts[A], c = pts[C];
+  const ang = Math.atan2(c.y - a.y, c.x - a.x) - Math.atan2(cardCentre.y, cardCentre.x);
+  card.position.set(a.x, a.y, 0);
+  card.rotation.set(tilt + hoverTilt, yaw + hoverYaw, ang);
+  updateLanyard();
+  renderer.render(scene, camera);
+}
+function setActive(on) {
+  active = on; cancelAnimationFrame(raf); lastT = 0; acc = 0;
+  if (on) { P.renderFaces(); tick(); }
+}
+// pause while the tab is hidden; resume without a time jump
+let wanted = false;
+document.addEventListener('visibilitychange', () => { if (document.hidden) { wanted = active; setActive(false); } else if (wanted) setActive(true); });
+P.ready3d({ setActive, flip });
+</script>
+
+</html>
