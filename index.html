@@ -922,17 +922,19 @@
       return false;
     }
   }
+  const EXPORT_BG = '#ffffff';   // downloads sit on white, whatever the page theme
   const toBlob = c => new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('encode')), 'image/png'));
   const bytes = async c => new Uint8Array(await (await toBlob(c)).arrayBuffer());
   const kb = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
   function effectHi() { const c = mk(W * 2, H * 2), x = c.getContext('2d'); x.setTransform(2, 0, 0, 2, 0, 0); effects[cur].draw(x, performance.now() / 1000); return c; }
   function cardCanvas(s = 3) {
-    const b = boundsOf(layout), pad = 24, c = mk(Math.round((b.w + pad * 2) * s), Math.round((b.h + pad * 2 + 24) * s));
-    drawCard(c.getContext('2d'), s, (pad - b.x) * s, (pad - b.y) * s, layout, outline.id, effectHi());
+    const b = boundsOf(layout), pad = 24, c = mk(Math.round((b.w + pad * 2) * s), Math.round((b.h + pad * 2 + 24) * s)), x = c.getContext('2d');
+    x.fillStyle = EXPORT_BG; x.fillRect(0, 0, c.width, c.height);
+    drawCard(x, s, (pad - b.x) * s, (pad - b.y) * s, layout, outline.id, effectHi());
     return c;
   }
   function drawStory(x) {
-    x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = '#0c0c0e'; x.fillRect(0, 0, 1080, 1920);
+    x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = EXPORT_BG; x.fillRect(0, 0, 1080, 1920);
     const b = boundsOf(layout), s = Math.min(960 / b.w, 1700 / b.h);
     drawCard(x, s, (1080 - b.w * s) / 2 - b.x * s, (1920 - b.h * s) / 2 - b.y * s);
   }
